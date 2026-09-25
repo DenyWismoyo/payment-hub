@@ -116,7 +116,7 @@ export default function InvoicePrintPage() {
         {/* Footer */}
         <div className="mt-20 pt-8 border-t border-gray-200 text-sm text-gray-500 text-center">
           <p>Terima kasih atas kepercayaan Anda.</p>
-          <p className="mt-1">Pembayaran dapat dilakukan melalui tautan: <a href={billing.mayarPaymentUrl} className="text-blue-600 underline">{billing.mayarPaymentUrl}</a></p>
+          <p className="mt-1">Pembayaran dapat dilakukan melalui tautan: <a href={billing.mayarPaymentUrl || "#"} className="text-blue-600 underline">{billing.mayarPaymentUrl || "Belum tersedia"}</a></p>
         </div>
       </div>
       

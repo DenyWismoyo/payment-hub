@@ -16,12 +16,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { formatRupiah } from "@/lib/utils";
-
-const statusConfig: Record<string, { label: string; class: string }> = {
-  paid: { label: "Lunas", class: "bg-success/10 text-success border-success/20" },
-  pending: { label: "Menunggu", class: "bg-warning/10 text-warning border-warning/20" },
-  overdue: { label: "Jatuh Tempo", class: "bg-danger/10 text-danger border-danger/20" },
-};
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { PageHeader } from "@/components/common/PageHeader";
+import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { RevenueChart } from "@/components/dashboard/RevenueChart";
+import type { DashboardStat, DashboardRecentTransaction, DashboardCatalogBreakdown, DashboardRevenueChart } from "@/types";
 
 const icons = {
   Wallet,
@@ -37,13 +37,18 @@ const colors = [
 ];
 
 export default function DashboardPage() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<{
+    stats: DashboardStat[];
+    recentTransactions: DashboardRecentTransaction[];
+    catalogBreakdown: DashboardCatalogBreakdown[];
+    revenueChart: DashboardRevenueChart[];
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const res = await fetch("/api/dashboard");
+        const res = await fetchWithAuth("/api/dashboard");
         const json = await res.json();
         if (json.success) {
           setData(json.data);
@@ -58,28 +63,26 @@ export default function DashboardPage() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex justify-center py-20 text-gray-500">
-        <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
-      </div>
-    );
+    return <LoadingSkeleton type="card" count={4} />;
   }
 
-  const { stats, recentTransactions, catalogBreakdown } = data || { stats: [], recentTransactions: [], catalogBreakdown: [] };
+  const { stats, recentTransactions, catalogBreakdown, revenueChart } = data || { 
+    stats: [], 
+    recentTransactions: [], 
+    catalogBreakdown: [],
+    revenueChart: []
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)]">Dashboard</h1>
-        <p className="text-sm text-[var(--text-secondary)] mt-1">
-          Selamat datang kembali! Berikut ringkasan pembayaran Anda.
-        </p>
-      </div>
+      <PageHeader 
+        title="Dashboard" 
+        description="Selamat datang kembali! Berikut ringkasan pembayaran Anda."
+      />
 
       {/* ─── Stats Grid ──────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {stats.map((stat: any, idx: number) => {
+        {stats.map((stat: DashboardStat, idx: number) => {
           const Icon = Object.values(icons)[idx] || Wallet;
           const color = colors[idx] || colors[0];
           return (
@@ -119,67 +122,24 @@ export default function DashboardPage() {
 
       {/* ─── Main Content Grid ───────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Recent Transactions */}
+        
+        {/* Revenue Chart */}
         <div className="xl:col-span-2 rounded-2xl bg-[var(--surface)] border border-[var(--border)] overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
             <div className="flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-primary" />
+              <TrendingUp className="w-5 h-5 text-primary" />
               <h2 className="font-semibold text-[var(--text-primary)]">
-                Transaksi Terbaru
+                Tren Pendapatan (6 Bulan)
               </h2>
             </div>
-            <Link
-              href="/admin/billings"
-              className="text-xs text-primary hover:text-primary-light font-medium flex items-center gap-1 transition-colors"
-            >
-              Lihat Semua
-              <ExternalLink className="w-3 h-3" />
-            </Link>
           </div>
-          <div className="divide-y divide-[var(--border)]">
-            {recentTransactions.map((tx: any) => (
-              <div
-                key={tx.id}
-                className="flex items-center justify-between px-6 py-3.5 hover:bg-[var(--surface-hover)] transition-colors"
-              >
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--text-primary)] font-mono">
-                        {tx.id}
-                      </span>
-                      <span
-                        className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
-                          statusConfig[tx.status]?.class
-                        }`}
-                      >
-                        {statusConfig[tx.status]?.label}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
-                      {tx.client} · {tx.product}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right shrink-0 ml-4">
-                  <p className="text-sm font-semibold text-[var(--text-primary)] font-mono">
-                    {formatRupiah(tx.amount)}
-                  </p>
-                  <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1 justify-end">
-                    <Clock className="w-3 h-3" />
-                    {tx.date}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {recentTransactions.length === 0 && (
-              <div className="p-6 text-center text-gray-500 text-sm">Belum ada transaksi.</div>
-            )}
+          <div className="p-6 pt-2">
+            <RevenueChart data={revenueChart} />
           </div>
         </div>
 
         {/* Catalog Breakdown */}
-        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--border)] overflow-hidden">
+        <div className="rounded-2xl bg-[var(--surface)] border border-[var(--border)] overflow-hidden xl:row-span-2">
           <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-primary" />
@@ -189,7 +149,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="p-6 space-y-4">
-            {catalogBreakdown.map((item: any) => (
+            {catalogBreakdown.map((item: DashboardCatalogBreakdown) => (
               <div key={item.name}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-sm text-[var(--text-secondary)]">{item.name}</span>
@@ -220,6 +180,59 @@ export default function DashboardPage() {
               <span className="text-xs text-[var(--text-muted)]">Keterangan</span>
             </div>
             <p className="text-xs text-[var(--text-muted)]">Hanya menghitung tagihan yang telah dilunasi.</p>
+          </div>
+        </div>
+
+        {/* Recent Transactions */}
+        <div className="xl:col-span-2 rounded-2xl bg-[var(--surface)] border border-[var(--border)] overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-primary" />
+              <h2 className="font-semibold text-[var(--text-primary)]">
+                Transaksi Terbaru
+              </h2>
+            </div>
+            <Link
+              href="/admin/billings"
+              className="text-xs text-primary hover:text-primary-light font-medium flex items-center gap-1 transition-colors"
+            >
+              Lihat Semua
+              <ExternalLink className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="divide-y divide-[var(--border)]">
+            {recentTransactions.map((tx: DashboardRecentTransaction) => (
+              <div
+                key={tx.id}
+                className="flex items-center justify-between px-6 py-3.5 hover:bg-[var(--surface-hover)] transition-colors"
+              >
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--text-primary)] font-mono">
+                        {tx.id}
+                      </span>
+                      <StatusBadge status={tx.status} />
+                    </div>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                      {tx.client} · {tx.product}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0 ml-4">
+                  <p className="text-sm font-semibold text-[var(--text-primary)] font-mono">
+                    {formatRupiah(tx.amount)}
+                  </p>
+                  <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1 justify-end">
+                    <Clock className="w-3 h-3" />
+                    {tx.date}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {recentTransactions.length === 0 && (
+              <div className="p-6 text-center text-gray-500 text-sm">Belum ada transaksi.</div>
+            )}
           </div>
         </div>
       </div>

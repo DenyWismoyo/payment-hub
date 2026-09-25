@@ -27,7 +27,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   initialize: () => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        const allowedEmails = ["deny.wismoyo@gmail.com", "wismoyo.dev@gmail.com"];
+        const allowedEmails = (process.env.NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS || "deny.wismoyo@gmail.com,wismoyo.dev@gmail.com")
+          .split(",")
+          .map((e) => e.trim())
+          .filter(Boolean);
         
         if (!user.email || !allowedEmails.includes(user.email)) {
           // If not in allowed list, forcefully deny
@@ -47,7 +50,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           const adminDoc = await getDoc(doc(db, "admins", user.uid));
           const adminData = adminDoc.exists() 
             ? { uid: user.uid, ...adminDoc.data() } as Admin
-            : { uid: user.uid, email: user.email, name: user.displayName || "Admin", role: "superadmin" } as Admin;
+            : { uid: user.uid, email: user.email || "", displayName: user.displayName || "Admin", photoURL: user.photoURL || "", role: "super_admin", createdAt: new Date().toISOString() } as Admin;
             
           set({
             user,
@@ -59,7 +62,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           // Fallback to basic admin data if firestore fails
           set({
             user,
-            admin: { uid: user.uid, email: user.email, name: user.displayName || "Admin", role: "superadmin" } as Admin,
+            admin: { uid: user.uid, email: user.email || "", displayName: user.displayName || "Admin", photoURL: user.photoURL || "", role: "super_admin", createdAt: new Date().toISOString() } as Admin,
             isAuthenticated: true,
             isLoading: false,
           });

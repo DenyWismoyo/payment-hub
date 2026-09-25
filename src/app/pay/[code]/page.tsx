@@ -25,8 +25,8 @@ export default function PayDetailPage() {
           throw new Error(json.message || "Kode akses tidak valid");
         }
         setBilling(json.billing);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError((err instanceof Error ? err.message : String(err)));
       } finally {
         setLoading(false);
       }

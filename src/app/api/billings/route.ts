@@ -2,33 +2,84 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { mayarClient } from "@/lib/mayar/client";
 import { generateAccessCode } from "@/lib/utils/access-code";
+import { generateBillingNumber } from "@/lib/utils/billing-number";
+import { verifyAuthToken } from "@/lib/auth/verify-token";
 import type { Billing, Client, CatalogItem, TaxDetail } from "@/types";
+import { billingSchema } from "@/lib/validations/billing";
+import { logAdminAction } from "@/lib/utils/audit";
+import { sendBillingEmail } from "@/lib/utils/email";
 
 export async function GET(request: NextRequest) {
+  const auth = await verifyAuthToken(request);
+  if (!auth.success) return auth.response;
+
   try {
-    const snapshot = await adminDb.collection("billings").orderBy("createdAt", "desc").get();
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get("page") || "1", 10);
+    const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const status = searchParams.get("status");
+    const search = searchParams.get("search");
+
+    let query: FirebaseFirestore.Query = adminDb.collection("billings");
+
+    if (status && status !== "all") {
+      query = query.where("status", "==", status);
+    }
+
+    const snapshot = await query.orderBy("createdAt", "desc").get();
     
-    const billings: Billing[] = [];
+    let billings: Billing[] = [];
     snapshot.forEach((doc) => {
       billings.push({ id: doc.id, ...doc.data() } as Billing);
     });
 
-    return NextResponse.json({ success: true, data: billings });
-  } catch (error: any) {
+    if (search) {
+      const s = search.toLowerCase();
+      billings = billings.filter(b => 
+        b.billingNumber?.toLowerCase().includes(s) ||
+        b.clientName?.toLowerCase().includes(s) ||
+        b.accessCode?.toLowerCase().includes(s)
+      );
+    }
+
+    const total = billings.length;
+    const totalPages = Math.ceil(total / limit);
+    const paginatedBillings = billings.slice((page - 1) * limit, page * limit);
+
+    return NextResponse.json({ 
+      success: true, 
+      data: paginatedBillings,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages
+      }
+    });
+  } catch (error: unknown) {
     console.error("[GET /api/billings]", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: (error instanceof Error ? error.message : String(error)) }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await verifyAuthToken(request);
+  if (!auth.success) return auth.response;
+
   try {
     const body = await request.json();
-    const { clientId, catalogItemId, taxDetails, subtotal, taxTotal, grandTotal, notes, dueDate } = body;
-
-    // Validate relations
-    if (!clientId || !catalogItemId) {
-      return NextResponse.json({ success: false, message: "Client ID and Catalog Item ID are required" }, { status: 400 });
+    
+    // Validate with Zod
+    const parseResult = billingSchema.safeParse(body);
+    if (!parseResult.success) {
+      return NextResponse.json({ 
+        success: false, 
+        message: "Validasi gagal", 
+        errors: parseResult.error.format() 
+      }, { status: 400 });
     }
+
+    const { clientId, catalogItemId, taxDetails, subtotal, taxTotal, grandTotal, notes, dueDate } = parseResult.data;
 
     const clientDoc = await adminDb.collection("clients").doc(clientId).get();
     if (!clientDoc.exists) {
@@ -46,10 +97,15 @@ export async function POST(request: NextRequest) {
     const mayarPayload = {
       name: clientData.name,
       email: clientData.email,
-      phone: clientData.phone,
-      amount: grandTotal,
+      mobile: clientData.phone || "000000000000",
       description: `Tagihan untuk ${clientData.name} - ${itemData.name} - ${notes || ""}`,
-      expiredAt: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      items: [
+        {
+          quantity: 1,
+          rate: grandTotal,
+          description: itemData.name
+        }
+      ]
     };
 
     const mayarRes = await mayarClient.createInvoice(mayarPayload);
@@ -62,8 +118,11 @@ export async function POST(request: NextRequest) {
     const accessCode = generateAccessCode();
 
     // 3. Prepare Billing record
+    // Generate sequential billing number (atomic, no collision)
+    const billingNumber = await generateBillingNumber();
+
     const newBilling: Partial<Billing> = {
-      billingNumber: `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      billingNumber,
       clientId,
       catalogItemId,
       catalogItemName: itemData.name, 
@@ -86,7 +145,7 @@ export async function POST(request: NextRequest) {
       status: "issued",
 
       issuedAt: new Date().toISOString(),
-      dueDate: mayarPayload.expiredAt,
+      dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       paidAt: null,
       
       notes: notes || "",
@@ -108,15 +167,36 @@ export async function POST(request: NextRequest) {
       code: accessCode,
       billingId: billingRef.id,
       isUsed: false,
-      expiresAt: mayarPayload.expiredAt,
+      expiresAt: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date().toISOString()
     });
 
     await batch.commit();
 
+    await logAdminAction({
+      adminEmail: "admin@sosocreativehub.com", // In a real app this should come from auth.decodedToken
+      action: "CREATE",
+      resource: "BILLING",
+      resourceId: billingRef.id,
+      details: `Membuat tagihan baru ${billingNumber} untuk ${clientData.name} senilai ${grandTotal}`
+    });
+
+    if (clientData.email) {
+      await sendBillingEmail({
+        to: clientData.email,
+        subject: `Tagihan Pembayaran - ${billingNumber}`,
+        billingNumber,
+        clientName: clientData.name,
+        accessCode,
+        grandTotal,
+        paymentUrl: mayarRes.data.link,
+        dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      });
+    }
+
     return NextResponse.json({ success: true, data: { id: billingRef.id, ...newBilling } }, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[POST /api/billings]", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: (error instanceof Error ? error.message : String(error)) }, { status: 500 });
   }
 }

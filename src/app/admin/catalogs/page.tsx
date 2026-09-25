@@ -4,10 +4,15 @@ import { FolderOpen, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useCatalogs } from "@/hooks/useCatalogs";
+import { CatalogModal } from "@/components/catalog/CatalogModal";
+import { PageHeader } from "@/components/common/PageHeader";
+import { EmptyState } from "@/components/common/EmptyState";
+import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
 
 export default function CatalogsPage() {
-  const { catalogs, loading, error } = useCatalogs();
+  const { catalogs, loading, error, refetch } = useCatalogs();
   const [search, setSearch] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const filteredCatalogs = catalogs.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase())
@@ -15,19 +20,19 @@ export default function CatalogsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Katalog</h1>
-          <p className="text-sm text-[var(--text-secondary)] mt-1">
-            Kelola katalog aplikasi dan layanan
-          </p>
-        </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl gradient-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all hover:-translate-y-0.5">
-          <Plus className="w-4 h-4" />
-          Tambah Katalog
-        </button>
-      </div>
+      <PageHeader 
+        title="Katalog" 
+        description="Kelola katalog aplikasi dan layanan"
+        action={
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl gradient-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all hover:-translate-y-0.5"
+          >
+            <Plus className="w-4 h-4" />
+            Tambah Katalog
+          </button>
+        }
+      />
 
       {/* Search */}
       <div className="relative">
@@ -42,12 +47,23 @@ export default function CatalogsPage() {
       </div>
 
       {/* States */}
-      {loading && <div className="text-center text-[var(--text-muted)] py-10">Memuat katalog...</div>}
+      {loading && <LoadingSkeleton type="card" count={6} />}
       {error && <div className="text-center text-red-500 py-10">Error: {error}</div>}
       {!loading && !error && filteredCatalogs.length === 0 && (
-        <div className="text-center text-[var(--text-muted)] py-10">
-          Belum ada katalog. Silakan tambahkan katalog baru.
-        </div>
+        <EmptyState 
+          icon={FolderOpen}
+          title="Tidak Ada Katalog"
+          description={search ? "Tidak ada katalog yang cocok dengan pencarian Anda." : "Belum ada katalog. Silakan tambahkan katalog baru."}
+          action={
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-medium shadow-md hover:shadow-lg transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Tambah Katalog Pertama
+            </button>
+          }
+        />
       )}
 
       {/* Catalog Grid */}
@@ -85,6 +101,12 @@ export default function CatalogsPage() {
           </Link>
         ))}
       </div>
+
+      <CatalogModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={() => refetch()}
+      />
     </div>
   );
 }

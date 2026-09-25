@@ -9,11 +9,13 @@
 export interface MayarInvoiceCreatePayload {
   name: string;          // Customer name
   email: string;         // Customer email
-  phone?: string;        // Customer phone
-  amount: number;        // Amount in IDR (integer)
+  mobile?: string;       // Customer phone
   description?: string;  // Invoice description
-  expiredAt?: string;    // ISO date string
-  redirectUrl?: string;  // Redirect after payment
+  items: Array<{
+    quantity: number;
+    rate: number;
+    description: string;
+  }>;
 }
 
 export interface MayarPaymentRequestPayload {
@@ -128,7 +130,7 @@ class MayarClient {
   // ─── Invoice ──────────────────────────────────────────────
 
   async createInvoice(payload: MayarInvoiceCreatePayload) {
-    return this.request<MayarInvoiceData>("/invoices", {
+    return this.request<MayarInvoiceData>("/invoices/create", {
       method: "POST",
       body: JSON.stringify(payload),
     });

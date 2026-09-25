@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
+import { verifyAuthToken } from "@/lib/auth/verify-token";
 import type { Billing } from "@/types";
 
 export async function GET(request: NextRequest) {
+  const auth = await verifyAuthToken(request);
+  if (!auth.success) return auth.response;
+
   try {
     const billingsRef = adminDb.collection("billings");
     const snapshot = await billingsRef.where("status", "==", "paid").get();
     
     let totalTaxCollected = 0;
     const taxBreakdown: Record<string, number> = {};
-    const taxHistory: any[] = [];
+    const taxHistory: import("@/types").TaxHistoryItem[] = [];
 
     snapshot.forEach((doc) => {
       const b = doc.data() as Billing;
@@ -51,10 +55,10 @@ export async function GET(request: NextRequest) {
       }
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[Tax Report API]", error);
     return NextResponse.json(
-      { success: false, message: error.message },
+      { success: false, message: (error instanceof Error ? error.message : String(error)) },
       { status: 500 }
     );
   }

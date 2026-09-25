@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Printer, ExternalLink, ReceiptText, CheckCircle, Clock } from "lucide-react";
+import { ArrowLeft, Printer, ExternalLink, ReceiptText, CheckCircle, Clock, XCircle } from "lucide-react";
 import type { Billing } from "@/types";
 import { formatRupiah } from "@/lib/utils";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { toast } from "sonner";
 
 const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
   draft: { label: "Draft", bg: "bg-gray-100", text: "text-gray-600" },
@@ -23,22 +25,51 @@ export default function BillingDetailPage() {
   const [billing, setBilling] = useState<Billing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
     async function fetchBilling() {
       try {
-        const res = await fetch(`/api/billings/${id}`);
+        const res = await fetchWithAuth(`/api/billings/${id}`);
         const json = await res.json();
         if (!res.ok || !json.success) throw new Error(json.message);
         setBilling(json.data);
-      } catch (err: any) {
-        setError(err.message || "Gagal memuat detail tagihan.");
+      } catch (err: unknown) {
+        setError((err instanceof Error ? err.message : String(err)) || "Gagal memuat detail tagihan.");
       } finally {
         setLoading(false);
       }
     }
     fetchBilling();
   }, [id]);
+
+  const handleCancelBilling = async () => {
+    if (!confirm("Apakah Anda yakin ingin membatalkan tagihan ini? (Ini tidak akan menghapus data, hanya mengubah status)")) return;
+    
+    try {
+      setIsCancelling(true);
+      const res = await fetchWithAuth(`/api/billings/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message);
+      
+      // Update local state
+      if (billing) {
+        setBilling({ ...billing, status: "cancelled" });
+      }
+      toast.success("Tagihan berhasil dibatalkan");
+    } catch (err: unknown) {
+      toast.error((err instanceof Error ? err.message : String(err)) || "Gagal membatalkan tagihan");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleCopyAccessCode = () => {
+    if (billing?.accessCode) {
+      navigator.clipboard.writeText(billing.accessCode);
+      toast.success("Kode akses berhasil disalin!");
+    }
+  };
 
   if (loading) return <div className="text-center py-20 text-gray-500">Memuat detail tagihan...</div>;
   if (error || !billing) return <div className="text-center py-20 text-red-500">{error || "Tagihan tidak ditemukan"}</div>;
@@ -72,6 +103,17 @@ export default function BillingDetailPage() {
             <Printer className="w-4 h-4" />
             Cetak Invoice
           </Link>
+          
+          {billing.status !== "paid" && billing.status !== "cancelled" && (
+            <button
+              onClick={handleCancelBilling}
+              disabled={isCancelling}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-50 text-red-600 text-sm font-medium border border-red-100 hover:bg-red-100 transition-all disabled:opacity-50"
+            >
+              <XCircle className="w-4 h-4" />
+              {isCancelling ? "Membatalkan..." : "Batalkan Tagihan"}
+            </button>
+          )}
           {billing.mayarPaymentUrl && (
             <a
               href={billing.mayarPaymentUrl}
@@ -166,9 +208,13 @@ export default function BillingDetailPage() {
                </div>
              </div>
 
-             <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center">
+             <div 
+               className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center cursor-pointer hover:bg-blue-100 transition-colors"
+               onClick={handleCopyAccessCode}
+             >
                 <p className="text-xs text-blue-600 font-semibold mb-1">KODE AKSES KLIEN</p>
                 <code className="text-xl font-bold font-mono text-blue-900 tracking-widest">{billing.accessCode}</code>
+                <p className="text-[10px] text-blue-500 mt-2">Klik untuk menyalin</p>
              </div>
           </div>
         </div>

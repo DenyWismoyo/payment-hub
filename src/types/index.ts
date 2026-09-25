@@ -83,6 +83,8 @@ export interface Catalog {
   color: string;
   isActive: boolean;
   itemCount: number;
+  price?: number;
+  basePrice?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -188,6 +190,15 @@ export interface TaxAllocation {
   createdAt: string;
 }
 
+export interface TaxHistoryItem {
+  id: string;
+  billingNumber: string;
+  clientName: string;
+  taxName: string;
+  amount: number;
+  date: string;
+}
+
 // ============================================================
 // Dashboard Stats
 // ============================================================
@@ -199,6 +210,35 @@ export interface DashboardStats {
   paidThisMonth: number;
   overdueCount: number;
   totalClients: number;
+}
+
+export interface DashboardRecentTransaction {
+  id: string;
+  client: string;
+  amount: number;
+  status: string;
+  date: string;
+  product: string;
+  rawDate: number;
+}
+
+export interface DashboardCatalogBreakdown {
+  name: string;
+  amount: number;
+  percentage: number;
+  color: string;
+}
+
+export interface DashboardStat {
+  label: string;
+  value: number;
+  change: string;
+  trend: string;
+}
+
+export interface DashboardRevenueChart {
+  name: string;
+  total: number;
 }
 
 // ============================================================

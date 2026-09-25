@@ -1,19 +1,16 @@
 "use client";
 
-import { Plus, Search, Filter, Download, Clock, ArrowUpDown } from "lucide-react";
+import { Plus, Search, Filter, Download, Clock, ArrowUpDown, CopyPlus } from "lucide-react";
 import Link from "next/link";
 import { formatRupiah } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useBillings } from "@/hooks/useBillings";
 
-const statusConfig: Record<string, { label: string; class: string }> = {
-  draft: { label: "Draft", class: "bg-gray-500/10 text-gray-400 border-gray-500/20" },
-  issued: { label: "Diterbitkan", class: "bg-info/10 text-info border-info/20" },
-  sent: { label: "Terkirim", class: "bg-secondary/10 text-secondary border-secondary/20" },
-  paid: { label: "Lunas", class: "bg-success/10 text-success border-success/20" },
-  overdue: { label: "Jatuh Tempo", class: "bg-danger/10 text-danger border-danger/20" },
-  cancelled: { label: "Dibatalkan", class: "bg-gray-500/10 text-gray-500 border-gray-500/20" },
-};
+import { PageHeader } from "@/components/common/PageHeader";
+import { EmptyState } from "@/components/common/EmptyState";
+import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { FileText } from "lucide-react";
 
 const clientTypeConfig: Record<string, { label: string; class: string }> = {
   government: { label: "Pemerintah", class: "bg-blue-500/10 text-blue-400" },
@@ -22,39 +19,56 @@ const clientTypeConfig: Record<string, { label: string; class: string }> = {
 };
 
 export default function BillingsPage() {
-  const { billings, loading, error } = useBillings();
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const limit = 10;
 
-  const filteredBillings = billings.filter(b => 
-    b.billingNumber?.toLowerCase().includes(search.toLowerCase()) || 
-    b.clientName?.toLowerCase().includes(search.toLowerCase()) ||
-    b.accessCode?.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 500);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1); // Reset page on filter change
+  }, [debouncedSearch, status]);
+
+  const { billings, pagination, loading, error } = useBillings({
+    page,
+    limit,
+    status,
+    search: debouncedSearch
+  });
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Tagihan</h1>
-          <p className="text-sm text-[var(--text-secondary)] mt-1">
-            Kelola semua tagihan yang telah diterbitkan
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] text-sm font-medium hover:bg-[var(--surface-hover)] transition-all">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          <Link
-            href="/admin/billings/new"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl gradient-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all hover:-translate-y-0.5"
-          >
-            <Plus className="w-4 h-4" />
-            Buat Tagihan
-          </Link>
-        </div>
-      </div>
+      <PageHeader 
+        title="Tagihan" 
+        description="Kelola semua tagihan yang telah diterbitkan"
+        action={
+          <>
+            <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] text-sm font-medium hover:bg-[var(--surface-hover)] transition-all">
+              <Download className="w-4 h-4" />
+              Export
+            </button>
+            <Link
+              href="/admin/billings/batch"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary/10 text-primary text-sm font-semibold hover:bg-primary/20 transition-all hover:-translate-y-0.5"
+            >
+              <CopyPlus className="w-4 h-4" />
+              Tagihan Massal
+            </Link>
+            <Link
+              href="/admin/billings/new"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl gradient-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all hover:-translate-y-0.5"
+            >
+              <Plus className="w-4 h-4" />
+              Buat Tagihan
+            </Link>
+          </>
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -68,27 +82,41 @@ export default function BillingsPage() {
             className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--text-primary)] text-sm placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
           />
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] text-sm font-medium hover:bg-[var(--surface-hover)] transition-all">
-          <Filter className="w-4 h-4" />
-          Filter
-        </button>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] text-sm font-medium hover:bg-[var(--surface-hover)] transition-all">
-          <ArrowUpDown className="w-4 h-4" />
-          Urutkan
-        </button>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="px-4 py-2.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--text-secondary)] text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all appearance-none"
+        >
+          <option value="all">Semua Status</option>
+          <option value="issued">Issued</option>
+          <option value="paid">Lunas</option>
+          <option value="overdue">Jatuh Tempo</option>
+          <option value="cancelled">Dibatalkan</option>
+        </select>
       </div>
 
       {/* States */}
-      {loading && <div className="text-center text-[var(--text-muted)] py-10">Memuat tagihan...</div>}
+      {loading && <LoadingSkeleton type="table" count={5} />}
       {error && <div className="text-center text-red-500 py-10">Error: {error}</div>}
-      {!loading && !error && filteredBillings.length === 0 && (
-        <div className="text-center text-[var(--text-muted)] py-10">
-          Belum ada tagihan. Silakan buat tagihan baru.
-        </div>
+      {!loading && !error && billings.length === 0 && (
+        <EmptyState 
+          icon={FileText}
+          title="Tidak Ada Tagihan"
+          description={search ? "Tidak ada tagihan yang cocok dengan pencarian Anda." : "Belum ada tagihan. Silakan buat tagihan baru untuk klien Anda."}
+          action={
+            <Link
+              href="/admin/billings/new"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-medium shadow-md hover:shadow-lg transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Buat Tagihan Pertama
+            </Link>
+          }
+        />
       )}
 
       {/* Billings Table */}
-      {!loading && !error && filteredBillings.length > 0 && (
+      {!loading && !error && billings.length > 0 && (
         <div className="rounded-2xl bg-[var(--surface)] border border-[var(--border)] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -118,7 +146,7 @@ export default function BillingsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {filteredBillings.map((billing) => (
+                {billings.map((billing) => (
                   <tr
                     key={billing.id}
                     className="hover:bg-[var(--surface-hover)] transition-colors cursor-pointer"
@@ -161,13 +189,7 @@ export default function BillingsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-3.5 text-center">
-                      <span
-                        className={`text-[11px] font-medium px-2.5 py-1 rounded-full border ${
-                          statusConfig[billing.status]?.class || statusConfig.issued.class
-                        }`}
-                      >
-                        {statusConfig[billing.status]?.label || billing.status}
-                      </span>
+                      <StatusBadge status={billing.status} />
                     </td>
                     <td className="px-6 py-3.5">
                       <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">
@@ -180,6 +202,46 @@ export default function BillingsPage() {
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination Controls */}
+          {pagination && pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)]">
+              <span className="text-sm text-[var(--text-muted)]">
+                Menampilkan {(pagination.page - 1) * pagination.limit + 1} - {Math.min(pagination.page * pagination.limit, pagination.total)} dari {pagination.total} tagihan
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={pagination.page === 1}
+                  className="px-3 py-1.5 rounded-lg border border-[var(--border)] text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  Sebelumnya
+                </button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: pagination.totalPages }).map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setPage(i + 1)}
+                      className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
+                        pagination.page === i + 1 
+                          ? "bg-primary text-white" 
+                          : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
+                  disabled={pagination.page === pagination.totalPages}
+                  className="px-3 py-1.5 rounded-lg border border-[var(--border)] text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  Selanjutnya
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

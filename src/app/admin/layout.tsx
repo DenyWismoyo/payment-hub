@@ -16,9 +16,11 @@ import {
   ChevronLeft,
   Menu,
   X,
+  Activity,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { signOut } from "@/lib/firebase/auth";
+import { ThemeToggle } from "@/components/common/ThemeToggle";
 
 const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -27,6 +29,7 @@ const navItems = [
   { href: "/admin/payments", label: "Pembayaran", icon: CreditCard },
   { href: "/admin/clients", label: "Klien", icon: Users },
   { href: "/admin/tax", label: "Pajak", icon: Calculator },
+  { href: "/admin/audit", label: "Audit Log", icon: Activity },
   { href: "/admin/settings", label: "Pengaturan", icon: Settings },
 ];
 
@@ -115,22 +118,25 @@ export default function AdminLayout({
               </span>
             )}
           </Link>
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="hidden lg:flex items-center justify-center w-7 h-7 rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text-muted)] transition-colors"
-          >
-            <ChevronLeft
-              className={`w-4 h-4 transition-transform ${
-                sidebarCollapsed ? "rotate-180" : ""
-              }`}
-            />
-          </button>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden flex items-center justify-center w-7 h-7 rounded-lg text-[var(--text-muted)]"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="hidden lg:flex items-center justify-center w-7 h-7 rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text-muted)] transition-colors"
+            >
+              <ChevronLeft
+                className={`w-4 h-4 transition-transform ${
+                  sidebarCollapsed ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden flex items-center justify-center w-7 h-7 rounded-lg text-[var(--text-muted)]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Nav Items */}
@@ -194,17 +200,21 @@ export default function AdminLayout({
 
       {/* ─── Main Content ────────────────────────────────── */}
       <main className="flex-1 min-w-0">
-        {/* Mobile Header */}
-        <header className="sticky top-0 z-30 flex items-center gap-4 px-4 h-14 bg-[var(--background)]/80 backdrop-blur-lg border-b border-[var(--border)] lg:hidden">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="flex items-center justify-center w-9 h-9 rounded-xl hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] transition-colors"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <span className="text-sm font-semibold text-[var(--text-primary)]">
-            SOSO Payment
-          </span>
+        <header className="sticky top-0 z-30 flex items-center justify-between px-4 h-14 bg-[var(--background)]/80 backdrop-blur-lg border-b border-[var(--border)] lg:hidden">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex items-center justify-center w-9 h-9 rounded-xl hover:bg-[var(--surface-hover)] text-[var(--text-secondary)] transition-colors"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <span className="text-sm font-semibold text-[var(--text-primary)]">
+              SOSO Payment
+            </span>
+          </div>
+          <div className="flex items-center">
+            <ThemeToggle />
+          </div>
         </header>
 
         {/* Page content */}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Catalog } from "@/types";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 export function useCatalogs() {
   const [catalogs, setCatalogs] = useState<Catalog[]>([]);
@@ -9,15 +10,15 @@ export function useCatalogs() {
   const fetchCatalogs = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/catalogs");
+      const res = await fetchWithAuth("/api/catalogs");
       const data = await res.json();
       if (data.success) {
         setCatalogs(data.data);
       } else {
         setError(data.message);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }

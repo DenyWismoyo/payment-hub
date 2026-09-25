@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
+import { verifyAuthToken } from "@/lib/auth/verify-token";
 import type { Catalog } from "@/types";
+import { catalogSchema } from "@/lib/validations/catalog";
+import { logAdminAction } from "@/lib/utils/audit";
 
 export async function GET(request: NextRequest) {
+  const auth = await verifyAuthToken(request);
+  if (!auth.success) return auth.response;
+
   try {
     const snapshot = await adminDb.collection("catalogs").orderBy("createdAt", "desc").get();
     
@@ -12,27 +18,36 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({ success: true, data: catalogs });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[GET /api/catalogs]", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: (error instanceof Error ? error.message : String(error)) }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await verifyAuthToken(request);
+  if (!auth.success) return auth.response;
+
   try {
     const body = await request.json();
     
-    // Basic validation
-    if (!body.name || !body.category) {
-      return NextResponse.json({ success: false, message: "Name and category are required" }, { status: 400 });
+    const parseResult = catalogSchema.safeParse(body);
+    if (!parseResult.success) {
+      return NextResponse.json({ 
+        success: false, 
+        message: "Validasi gagal", 
+        errors: parseResult.error.format() 
+      }, { status: 400 });
     }
 
+    const validatedData = parseResult.data;
+
     const newCatalog: Partial<Catalog> = {
-      name: body.name,
-      description: body.description || "",
-      category: body.category,
-      icon: body.icon || "📦",
-      color: body.color || "from-blue-500 to-indigo-600",
+      name: validatedData.name,
+      description: validatedData.description || "",
+      category: validatedData.category,
+      icon: validatedData.icon,
+      color: validatedData.color,
       isActive: true,
       itemCount: 0,
       createdAt: new Date().toISOString(),
@@ -42,9 +57,17 @@ export async function POST(request: NextRequest) {
     const docRef = await adminDb.collection("catalogs").add(newCatalog);
     const catalog = { id: docRef.id, ...newCatalog };
 
+    await logAdminAction({
+      adminEmail: "admin@sosocreativehub.com",
+      action: "CREATE",
+      resource: "CATALOG",
+      resourceId: docRef.id,
+      details: `Menambahkan katalog baru: ${newCatalog.name} (${newCatalog.category})`
+    });
+
     return NextResponse.json({ success: true, data: catalog }, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[POST /api/catalogs]", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: (error instanceof Error ? error.message : String(error)) }, { status: 500 });
   }
 }

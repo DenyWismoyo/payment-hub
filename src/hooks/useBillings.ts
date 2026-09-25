@@ -1,31 +1,42 @@
-import { useState, useEffect } from "react";
+import useSWR from "swr";
 import type { Billing } from "@/types";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
-export function useBillings() {
-  const [billings, setBillings] = useState<Billing[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export interface UseBillingsOptions {
+  page?: number;
+  limit?: number;
+  status?: string;
+  search?: string;
+}
 
-  const fetchBillings = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/billings");
-      const data = await res.json();
-      if (data.success) {
-        setBillings(data.data);
-      } else {
-        setError(data.message);
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+const fetcher = async (url: string) => {
+  const res = await fetchWithAuth(url);
+  const data = await res.json();
+  if (!data.success) {
+    throw new Error(data.message || "Failed to fetch billings");
+  }
+  return data;
+};
+
+export function useBillings(options?: UseBillingsOptions) {
+  const params = new URLSearchParams();
+  if (options?.page) params.append("page", options.page.toString());
+  if (options?.limit) params.append("limit", options.limit.toString());
+  if (options?.status) params.append("status", options.status);
+  if (options?.search) params.append("search", options.search);
+
+  const url = `/api/billings${params.toString() ? `?${params.toString()}` : ""}`;
+
+  const { data, error, mutate, isLoading } = useSWR(url, fetcher, {
+    refreshInterval: 5000, // Poll every 5s for near-real-time updates
+    revalidateOnFocus: true,
+  });
+
+  return { 
+    billings: (data?.data as Billing[]) || [], 
+    pagination: data?.pagination || { total: 0, page: 1, limit: 50, totalPages: 1 }, 
+    loading: isLoading, 
+    error: error?.message || null, 
+    refetch: mutate 
   };
-
-  useEffect(() => {
-    fetchBillings();
-  }, []);
-
-  return { billings, loading, error, refetch: fetchBillings };
 }

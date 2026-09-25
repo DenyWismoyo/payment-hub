@@ -5,10 +5,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/**
- * Format angka ke Rupiah
- */
-export function formatRupiah(amount: number): string {
+export function formatRupiah(amount: number) {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
@@ -17,29 +14,20 @@ export function formatRupiah(amount: number): string {
   }).format(amount);
 }
 
-/**
- * Format tanggal ke bahasa Indonesia
- */
-export function formatDate(date: Date | string, options?: Intl.DateTimeFormatOptions): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    ...options,
-  });
+export function getStatusColor(status: string) {
+  switch (status) {
+    case "paid": return "bg-green-100 text-green-700";
+    case "pending": return "bg-yellow-100 text-yellow-700";
+    case "overdue": return "bg-red-100 text-red-700";
+    default: return "bg-gray-100 text-gray-700";
+  }
 }
 
-/**
- * Format tanggal + waktu
- */
-export function formatDateTime(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+export function getStatusLabel(status: string) {
+  switch (status) {
+    case "paid": return "Lunas";
+    case "pending": return "Menunggu";
+    case "overdue": return "Jatuh Tempo";
+    default: return status;
+  }
 }

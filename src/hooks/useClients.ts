@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Client } from "@/types";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 export function useClients() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -9,15 +10,15 @@ export function useClients() {
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/clients");
+      const res = await fetchWithAuth("/api/clients");
       const data = await res.json();
       if (data.success) {
         setClients(data.data);
       } else {
         setError(data.message);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError((err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }

@@ -11,7 +11,10 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "./config";
 import type { Admin } from "@/types";
 
-const ALLOWED_EMAILS = ["deny.wismoyo@gmail.com", "wismoyo.dev@gmail.com"];
+const ALLOWED_EMAILS = (process.env.NEXT_PUBLIC_ADMIN_ALLOWED_EMAILS || "deny.wismoyo@gmail.com,wismoyo.dev@gmail.com")
+  .split(",")
+  .map((e) => e.trim())
+  .filter(Boolean);
 
 /**
  * Login admin menggunakan Google Sign-In
