@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { verifyAuthToken } from "@/lib/auth/verify-token";
 import type { CatalogItem } from "@/types";
+import { mayarClient } from "@/lib/mayar/client";
 
 export async function PUT(
   request: NextRequest,
@@ -39,6 +40,21 @@ export async function PUT(
     const itemDoc = await itemRef.get();
     if (!itemDoc.exists || itemDoc.data()?.catalogId !== catalogId) {
        return NextResponse.json({ success: false, message: "Item tidak ditemukan atau tidak sesuai dengan katalog" }, { status: 404 });
+    }
+
+    const currentItem = itemDoc.data() as CatalogItem;
+
+    // Update to Mayar if mayarProductId exists and important fields are changed
+    if (currentItem.mayarProductId && (body.name || body.price !== undefined || body.description !== undefined)) {
+      try {
+        await mayarClient.updateProduct(currentItem.mayarProductId, {
+          name: body.name || currentItem.name,
+          amount: body.price !== undefined ? Number(body.price) : currentItem.price,
+          description: body.description !== undefined ? body.description : currentItem.description,
+        });
+      } catch (error) {
+        console.warn(`[PUT /api/catalogs/${params?.id}/items/${params?.itemId}] Failed to update Mayar Product:`, error);
+      }
     }
 
     await itemRef.update(updateData);

@@ -1,185 +1,146 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { mayarClient } from "@/lib/mayar/client";
-import { generateAccessCode } from "@/lib/utils/access-code";
-import { generateBillingNumber } from "@/lib/utils/billing-number";
 import { verifyAuthToken } from "@/lib/auth/verify-token";
-import type { Billing, Client, CatalogItem } from "@/types";
-import { z } from "zod";
-import { logAdminAction } from "@/lib/utils/audit";
-import { sendBillingEmail } from "@/lib/utils/email";
+import { Billing, Client } from "@/types";
+import { generateAccessCode } from "@/lib/utils/access-code";
 
-const batchBillingSchema = z.object({
-  clientIds: z.array(z.string().min(1, "Client ID required")),
-  catalogItemId: z.string().min(1, "Catalog Item is required"),
-  subtotal: z.number().min(0),
-  taxDetails: z.array(z.object({
-    type: z.enum(["ppn", "pph21", "pph23", "pph4_2", "retribusi", "custom"]),
-    name: z.string(),
-    percentage: z.number(),
-    amount: z.number(),
-    isInclusive: z.boolean()
-  })),
-  taxTotal: z.number().min(0),
-  grandTotal: z.number().min(0),
-  notes: z.string().optional(),
-  dueDate: z.string().optional(),
-});
-
+// API ini memungkinkan admin membuat banyak tagihan (batch) untuk banyak klien sekaligus
+// Input: array of { clientId, catalogItemId, amount, etc }
 export async function POST(request: NextRequest) {
   const auth = await verifyAuthToken(request);
   if (!auth.success) return auth.response;
 
   try {
-    const body = await request.json();
-    const parseResult = batchBillingSchema.safeParse(body);
+    const payload = await request.json();
     
-    if (!parseResult.success) {
-      return NextResponse.json({ 
-        success: false, 
-        message: "Validasi gagal", 
-        errors: parseResult.error.format() 
-      }, { status: 400 });
+    if (!Array.isArray(payload.billings) || payload.billings.length === 0) {
+      return NextResponse.json({ success: false, message: "Invalid payload. 'billings' array required." }, { status: 400 });
     }
 
-    const { clientIds, catalogItemId, taxDetails, subtotal, taxTotal, grandTotal, notes, dueDate } = parseResult.data;
-
-    if (clientIds.length === 0) {
-      return NextResponse.json({ success: false, message: "Pilih setidaknya 1 klien." }, { status: 400 });
+    if (payload.billings.length > 50) {
+      return NextResponse.json({ success: false, message: "Max batch size is 50 to prevent timeout." }, { status: 400 });
     }
 
-    // Get catalog item
-    const itemDoc = await adminDb.collection("catalog_items").doc(catalogItemId).get();
-    if (!itemDoc.exists) {
-      return NextResponse.json({ success: false, message: "Catalog item not found" }, { status: 404 });
-    }
-    const itemData = itemDoc.data() as CatalogItem;
-
-    // Get all clients
-    const clientsRef = adminDb.collection("clients");
-    
-    const results = [];
     const batch = adminDb.batch();
-
+    const createdBillings: any[] = [];
     let successCount = 0;
-    
-    for (const clientId of clientIds) {
-      const clientDoc = await clientsRef.doc(clientId).get();
-      if (!clientDoc.exists) continue; // Skip if client not found
-      
-      const clientData = clientDoc.data() as Client;
 
-      // 1. Create Mayar Invoice
-      const mayarPayload = {
-        name: clientData.name,
-        email: clientData.email,
-        mobile: clientData.phone || "000000000000",
-        description: `Tagihan untuk ${clientData.name} - ${itemData.name} - ${notes || ""}`,
-        items: [
-          {
-            quantity: 1,
-            rate: grandTotal,
-            description: itemData.name
+    // We fetch Mayar API sequentially here for simplicity,
+    // in production with high volume, consider background processing (Pub/Sub)
+    const MAYAR_API_KEY = process.env.MAYAR_API_KEY;
+    const MAYAR_BASE_URL = "https://api.mayar.id";
+
+    for (const item of payload.billings) {
+      // 1. Fetch Client
+      const clientDoc = await adminDb.collection("clients").doc(item.clientId).get();
+      if (!clientDoc.exists) continue;
+      const client = clientDoc.data() as Client;
+
+      // 2. Fetch Catalog Item
+      const catalogDoc = await adminDb.collection("catalog_items").doc(item.catalogItemId).get();
+      if (!catalogDoc.exists) continue;
+      const catalogItem = catalogDoc.data() as any;
+
+      const billingNumber = `INV-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const accessCode = generateAccessCode();
+      const amount = item.amount || catalogItem.price;
+
+      // 3. Create Mayar Invoice
+      let mayarData = null;
+      if (MAYAR_API_KEY) {
+        try {
+          const mayarRes = await fetch(`${MAYAR_BASE_URL}/hl/v2/invoice`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${MAYAR_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              name: `Tagihan: ${catalogItem.name} - ${client.name}`,
+              amount: amount,
+              customer_name: client.name,
+              customer_email: client.email,
+              customer_phone: client.phone || "",
+              description: `Batch billing untuk ${catalogItem.name}`
+            })
+          });
+
+          if (mayarRes.ok) {
+            const mayarJson = await mayarRes.json();
+            mayarData = mayarJson.data;
           }
-        ]
+        } catch (e) {
+          console.error(`[Batch] Mayar error for ${client.id}`, e);
+        }
+      }
+
+      if (!mayarData) continue;
+
+      // 4. Create Billing
+      const billingRef = adminDb.collection("billings").doc();
+      const dueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const newBilling: Billing = {
+        id: billingRef.id,
+        billingNumber,
+        clientId: client.id,
+        catalogItemId: catalogItem.id,
+        catalogItemName: catalogItem.name,
+        accessCode,
+        clientName: client.name,
+        clientEmail: client.email,
+        clientType: client.type,
+        clientOrganization: client.organization || "",
+        subtotal: amount,
+        taxDetails: [],
+        taxTotal: 0,
+        grandTotal: amount,
+        currency: "IDR",
+        mayarInvoiceId: mayarData.id,
+        mayarPaymentUrl: mayarData.link,
+        mayarStatus: "PENDING",
+        paymentMethod: null,
+        paymentChannel: null,
+        status: "issued",
+        issuedAt: new Date().toISOString(),
+        dueDate,
+        paidAt: null,
+        notes: item.notes || "Batch Generated Billing",
+        createdBy: auth.email,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
-      try {
-        const mayarRes = await mayarClient.createInvoice(mayarPayload);
-        
-        if (mayarRes.statusCode !== 200 && mayarRes.statusCode !== 201) {
-          throw new Error("Failed to create Mayar Invoice");
-        }
+      batch.set(billingRef, newBilling);
 
-        // 2. Generate Access Code
-        const accessCode = generateAccessCode();
-        
-        // 3. Prepare Billing record
-        const billingNumber = await generateBillingNumber();
-        
-        const newBilling: Partial<Billing> = {
-          billingNumber,
-          clientId,
-          catalogItemId,
-          catalogItemName: itemData.name, 
-          accessCode,
-          
-          clientName: clientData.name,
-          clientEmail: clientData.email,
-          clientType: clientData.type,
-          clientOrganization: clientData.organization,
+      const codeRef = adminDb.collection("access_codes").doc(accessCode);
+      batch.set(codeRef, {
+        code: accessCode,
+        billingId: billingRef.id,
+        isUsed: false,
+        expiresAt: dueDate,
+        createdAt: new Date().toISOString()
+      });
 
-          subtotal,
-          taxDetails: taxDetails || [],
-          taxTotal: taxTotal || 0,
-          grandTotal,
-
-          mayarInvoiceId: mayarRes.data.id,
-          mayarPaymentUrl: mayarRes.data.link,
-          mayarStatus: "PENDING",
-          status: "issued",
-          issuedAt: new Date().toISOString(),
-          dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          paidAt: null,
-          notes: notes || "",
-          createdBy: "admin", 
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-
-        const billingRef = adminDb.collection("billings").doc();
-        batch.set(billingRef, newBilling);
-
-        const codeRef = adminDb.collection("access_codes").doc(accessCode);
-        batch.set(codeRef, {
-          code: accessCode,
-          billingId: billingRef.id,
-          isUsed: false,
-          expiresAt: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          createdAt: new Date().toISOString()
-        });
-
-        results.push({ id: billingRef.id, ...newBilling });
-        successCount++;
-
-        if (clientData.email) {
-          // Send email asynchronously without blocking the loop too much
-          sendBillingEmail({
-            to: clientData.email,
-            subject: `Tagihan Pembayaran - ${billingNumber}`,
-            billingNumber,
-            clientName: clientData.name,
-            accessCode,
-            grandTotal,
-            paymentUrl: mayarRes.data.link,
-            dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-          }).catch(console.error); // Catch email errors so it doesn't break batch
-        }
-
-      } catch (err) {
-        console.error(`Failed generating bill for client ${clientId}`, err);
-        // Continue to next client
-      }
+      createdBillings.push(newBilling);
+      successCount++;
     }
 
     if (successCount > 0) {
       await batch.commit();
-
-      await logAdminAction({
-        adminEmail: "admin@sosocreativehub.com", // TODO: from token
-        action: "CREATE",
-        resource: "BILLING",
-        details: `Batch tagihan massal untuk ${successCount} klien dengan produk ${itemData.name}`
-      });
     }
 
     return NextResponse.json({ 
       success: true, 
-      message: `Berhasil membuat ${successCount} tagihan dari ${clientIds.length} klien terpilih.`,
-      data: results 
-    }, { status: 201 });
+      message: `Successfully created ${successCount} billings`,
+      data: createdBillings
+    });
+
   } catch (error: unknown) {
     console.error("[POST /api/billings/batch]", error);
-    return NextResponse.json({ success: false, message: (error instanceof Error ? error.message : String(error)) }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: (error instanceof Error ? error.message : String(error)) },
+      { status: 500 }
+    );
   }
 }

@@ -1,4 +1,12 @@
-import { adminDb } from "../firebase/admin";
+/**
+ * In-Memory Rate Limiter
+ * 
+ * Menggantikan implementasi Firestore sebelumnya untuk menghindari
+ * biaya read/write Firestore per setiap request rate limit.
+ * 
+ * Catatan: In-memory = reset saat server restart. 
+ * Untuk production multi-instance, gunakan Redis/Upstash.
+ */
 
 export interface RateLimitOptions {
   identifier: string;    // e.g., IP address or "access-code-123.45.67.89"
@@ -6,52 +14,59 @@ export interface RateLimitOptions {
   windowMs: number;      // Time window in milliseconds
 }
 
-export async function checkRateLimit({ identifier, limit, windowMs }: RateLimitOptions): Promise<{ success: boolean; message?: string }> {
-  const ref = adminDb.collection("rate_limits").doc(identifier);
-  
-  try {
-    const result = await adminDb.runTransaction(async (transaction) => {
-      const doc = await transaction.get(ref);
-      const now = Date.now();
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
 
-      if (!doc.exists) {
-        // First request
-        transaction.set(ref, {
-          count: 1,
-          resetAt: now + windowMs,
-        });
-        return { success: true };
+// In-memory store
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+// Cleanup stale entries every 5 minutes
+const CLEANUP_INTERVAL = 5 * 60 * 1000;
+let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+function startCleanup() {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitStore) {
+      if (now > entry.resetAt) {
+        rateLimitStore.delete(key);
       }
+    }
+  }, CLEANUP_INTERVAL);
 
-      const data = doc.data();
-      if (!data) return { success: true };
-
-      if (now > data.resetAt) {
-        // Window expired, reset
-        transaction.set(ref, {
-          count: 1,
-          resetAt: now + windowMs,
-        });
-        return { success: true };
-      }
-
-      if (data.count >= limit) {
-        // Rate limit exceeded
-        return { success: false, message: `Terlalu banyak request. Silakan coba lagi nanti.` };
-      }
-
-      // Increment count
-      transaction.update(ref, {
-        count: data.count + 1,
-      });
-      return { success: true };
-    });
-
-    return result;
-  } catch (error) {
-    console.error("Rate limit transaction failed", error);
-    // On failure to check rate limit (e.g., Firestore issue), default to allow 
-    // to not block legitimate traffic, or block if strict security is needed.
-    return { success: true }; 
+  // Don't block process exit
+  if (cleanupTimer && typeof cleanupTimer === "object" && "unref" in cleanupTimer) {
+    cleanupTimer.unref();
   }
+}
+
+export async function checkRateLimit({ identifier, limit, windowMs }: RateLimitOptions): Promise<{ success: boolean; message?: string }> {
+  startCleanup();
+
+  const now = Date.now();
+  const entry = rateLimitStore.get(identifier);
+
+  // No entry or window expired → reset
+  if (!entry || now > entry.resetAt) {
+    rateLimitStore.set(identifier, {
+      count: 1,
+      resetAt: now + windowMs,
+    });
+    return { success: true };
+  }
+
+  // Within window but under limit → increment
+  if (entry.count < limit) {
+    entry.count++;
+    return { success: true };
+  }
+
+  // Rate limit exceeded
+  return {
+    success: false,
+    message: "Terlalu banyak request. Silakan coba lagi nanti.",
+  };
 }

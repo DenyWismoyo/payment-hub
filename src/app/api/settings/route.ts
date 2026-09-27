@@ -44,13 +44,13 @@ export async function POST(request: NextRequest) {
     const updateData = {
       ...validatedData,
       updatedAt: new Date().toISOString(),
-      updatedBy: "admin", // in real app, from auth token
+      updatedBy: auth.email,
     };
 
     await adminDb.collection("settings").doc("global").set(updateData, { merge: true });
 
     await logAdminAction({
-      adminEmail: "admin@sosocreativehub.com",
+      adminEmail: auth.email,
       action: "SETTINGS_UPDATE",
       resource: "SETTINGS",
       resourceId: "global",

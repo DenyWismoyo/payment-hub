@@ -3,11 +3,39 @@ import { adminDb } from "@/lib/firebase/admin";
 import { verifyAuthToken } from "@/lib/auth/verify-token";
 import type { Billing } from "@/types";
 
+// ─── In-Memory Dashboard Cache ──────────────────────────────
+// Menghindari full-scan Firestore setiap kali dashboard diakses.
+// Cache di-invalidate setelah TTL atau jika admin request fresh data.
+
+interface DashboardCache {
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
+let dashboardCache: DashboardCache | null = null;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 menit
+
+function isCacheValid(): boolean {
+  if (!dashboardCache) return false;
+  return Date.now() - dashboardCache.timestamp < CACHE_TTL_MS;
+}
+
 export async function GET(request: NextRequest) {
   const auth = await verifyAuthToken(request);
   if (!auth.success) return auth.response;
 
   try {
+    // Cek query param ?fresh=true untuk force refresh
+    const forceRefresh = request.nextUrl.searchParams.get("fresh") === "true";
+
+    if (!forceRefresh && isCacheValid() && dashboardCache) {
+      return NextResponse.json({
+        success: true,
+        data: dashboardCache.data,
+        cached: true,
+      });
+    }
+
     const billingsRef = adminDb.collection("billings");
     const snapshot = await billingsRef.get();
     
@@ -50,7 +78,6 @@ export async function GET(request: NextRequest) {
 
     snapshot.forEach((doc) => {
       const b = doc.data() as Billing;
-      const bId = doc.id;
       
       const isPaid = b.status === "paid" || b.mayarStatus === "PAID";
       const isOverdue = new Date(b.dueDate) < now && !isPaid && b.status !== "cancelled";
@@ -58,7 +85,8 @@ export async function GET(request: NextRequest) {
       // Calculate stats
       if (isPaid) {
         totalPendapatan += b.grandTotal;
-        const paidDate = b.updatedAt ? new Date(b.updatedAt) : new Date(b.createdAt);
+        // Gunakan paidAt jika tersedia, fallback ke updatedAt, lalu createdAt
+        const paidDate = b.paidAt ? new Date(b.paidAt) : (b.updatedAt ? new Date(b.updatedAt) : new Date(b.createdAt));
         const pMonth = paidDate.getMonth();
         const pYear = paidDate.getFullYear();
         
@@ -130,39 +158,48 @@ export async function GET(request: NextRequest) {
     const revTrend = calcTrend(pendapatanBulanIni, pendapatanBulanLalu);
     const lunasTrend = calcTrend(lunasBulanIni, lunasBulanLalu);
 
+    const responseData = {
+      stats: [
+        {
+          label: "Total Pendapatan",
+          value: totalPendapatan,
+          change: revTrend.change,
+          trend: revTrend.trend,
+        },
+        {
+          label: "Tagihan Aktif",
+          value: tagihanAktif,
+          change: "",
+          trend: "neutral",
+        },
+        {
+          label: "Lunas Bulan Ini",
+          value: lunasBulanIni,
+          change: lunasTrend.change,
+          trend: lunasTrend.trend,
+        },
+        {
+          label: "Jatuh Tempo",
+          value: jatuhTempo,
+          change: "",
+          trend: "neutral",
+        }
+      ],
+      recentTransactions: topRecent,
+      catalogBreakdown,
+      revenueChart: revenueChart.map(item => ({ name: item.name, total: revenueMap[item._key!] }))
+    };
+
+    // Update cache
+    dashboardCache = {
+      data: responseData,
+      timestamp: Date.now(),
+    };
+
     return NextResponse.json({
       success: true,
-      data: {
-        stats: [
-          {
-            label: "Total Pendapatan",
-            value: totalPendapatan,
-            change: revTrend.change,
-            trend: revTrend.trend,
-          },
-          {
-            label: "Tagihan Aktif",
-            value: tagihanAktif,
-            change: "",
-            trend: "neutral",
-          },
-          {
-            label: "Lunas Bulan Ini",
-            value: lunasBulanIni,
-            change: lunasTrend.change,
-            trend: lunasTrend.trend,
-          },
-          {
-            label: "Jatuh Tempo",
-            value: jatuhTempo,
-            change: "",
-            trend: "neutral",
-          }
-        ],
-        recentTransactions: topRecent,
-        catalogBreakdown,
-        revenueChart: revenueChart.map(item => ({ name: item.name, total: revenueMap[item._key!] }))
-      }
+      data: responseData,
+      cached: false,
     });
 
   } catch (error: unknown) {

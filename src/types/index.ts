@@ -3,7 +3,7 @@
 // ============================================================
 
 export type ClientType = "government" | "private" | "individual";
-export type BillingStatus = "draft" | "issued" | "sent" | "partially_paid" | "paid" | "overdue" | "cancelled";
+export type BillingStatus = "draft" | "issued" | "sent" | "partially_paid" | "paid" | "overdue" | "cancelled" | "refunded";
 export type TaxType = "ppn" | "pph21" | "pph23" | "pph4_2" | "retribusi" | "custom";
 
 export interface TaxDetail {
@@ -33,14 +33,29 @@ export interface Billing {
   taxDetails: TaxDetail[];
   taxTotal: number;
   grandTotal: number;
+  currency: string;
 
   // Mayar Integration
   mayarInvoiceId: string | null;
   mayarPaymentUrl: string | null;
   mayarStatus: string;
 
+  // Payment info (diisi dari webhook)
+  paymentMethod: string | null;
+  paymentChannel: string | null;
+
   // Status
   status: BillingStatus;
+
+  // Installment support
+  installments?: {
+    term: number;
+    amount: number;
+    dueDate: string;
+    status: "pending" | "paid";
+    mayarInvoiceId?: string;
+    paidAt?: string;
+  }[];
 
   // Dates
   issuedAt: string;
@@ -126,6 +141,28 @@ export interface Client {
 }
 
 // ============================================================
+// Subscription Types
+// ============================================================
+
+export type SubscriptionCycle = "monthly" | "quarterly" | "yearly";
+
+export interface Subscription {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientEmail: string;
+  catalogItemId: string;
+  catalogItemName: string;
+  amount: number;
+  currency: string;
+  cycle: SubscriptionCycle;
+  status: "active" | "paused" | "cancelled";
+  nextBillingDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================
 // Payment Types
 // ============================================================
 
@@ -138,6 +175,7 @@ export interface Payment {
   mayarTransactionId: string;
   status: PaymentStatus;
   amount: number;
+  currency: string;
   paymentMethod: string;
   paymentChannel: string;
   paidAt: string;

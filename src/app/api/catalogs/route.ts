@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     const catalog = { id: docRef.id, ...newCatalog };
 
     await logAdminAction({
-      adminEmail: "admin@sosocreativehub.com",
+      adminEmail: auth.email,
       action: "CREATE",
       resource: "CATALOG",
       resourceId: docRef.id,

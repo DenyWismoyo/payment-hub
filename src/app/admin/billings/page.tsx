@@ -1,7 +1,8 @@
 "use client";
 
-import { Plus, Search, Filter, Download, Clock, ArrowUpDown, CopyPlus } from "lucide-react";
+import { Plus, Search, Filter, Download, Clock, ArrowUpDown, CopyPlus, Copy } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { formatRupiah } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { useBillings } from "@/hooks/useBillings";
@@ -143,6 +144,9 @@ export default function BillingsPage() {
                   <th className="text-left text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider px-6 py-3">
                     Jatuh Tempo
                   </th>
+                  <th className="text-right text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider px-6 py-3">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
@@ -196,6 +200,21 @@ export default function BillingsPage() {
                         <Clock className="w-3 h-3" />
                         {new Date(billing.dueDate).toLocaleDateString("id-ID")}
                       </span>
+                    </td>
+                    <td className="px-6 py-3.5 text-right flex justify-end">
+                      {billing.mayarPaymentUrl && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(billing.mayarPaymentUrl!);
+                            toast.success("Payment Link berhasil disalin!");
+                          }}
+                          className="p-2 rounded-lg text-[var(--text-muted)] hover:text-primary hover:bg-primary/10 transition-colors"
+                          title="Copy Payment Link"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

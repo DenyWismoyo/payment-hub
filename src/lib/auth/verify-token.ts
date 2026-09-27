@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebase/admin";
+import { adminAuth, adminDb } from "@/lib/firebase/admin";
 
 interface AuthResult {
   success: true;
   uid: string;
   email: string;
+  role: "super_admin" | "admin" | "viewer" | "unknown";
 }
 
 interface AuthError {
@@ -66,10 +67,25 @@ export async function verifyAuthToken(
       };
     }
 
+    // Fetch role from Firestore
+    let role: "super_admin" | "admin" | "viewer" | "unknown" = "unknown";
+    try {
+      const adminDoc = await adminDb.collection("admins").doc(decodedToken.uid).get();
+      if (adminDoc.exists) {
+        role = adminDoc.data()?.role || "unknown";
+      } else if (allowedEmails.includes(decodedToken.email || "")) {
+        // Fallback if in allowedEmails but not in DB
+        role = "super_admin";
+      }
+    } catch (e) {
+      console.warn("[Auth] Failed to fetch admin role from DB", e);
+    }
+
     return {
       success: true,
       uid: decodedToken.uid,
       email: decodedToken.email || "",
+      role,
     };
   } catch (error) {
     console.error("[Auth] Token verification failed:", error);
@@ -82,3 +98,14 @@ export async function verifyAuthToken(
     };
   }
 }
+
+export function requireAdminRole(auth: AuthResult) {
+  if (auth.role === "viewer" || auth.role === "unknown") {
+    return NextResponse.json(
+      { success: false, message: "Forbidden: Hanya admin yang dapat melakukan aksi ini" },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+

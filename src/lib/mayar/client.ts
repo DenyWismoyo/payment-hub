@@ -16,6 +16,7 @@ export interface MayarInvoiceCreatePayload {
     rate: number;
     description: string;
   }>;
+  redirectUrl?: string; // Menambahkan redirectUrl
 }
 
 export interface MayarPaymentRequestPayload {
@@ -31,6 +32,15 @@ export interface MayarCustomerPayload {
   name: string;
   email: string;
   mobile?: string;
+}
+
+export interface MayarProductPayload {
+  name: string;
+  amount: number;
+  description?: string;
+  category?: string;
+  redirectUrl?: string;
+  limit?: number;
 }
 
 export interface MayarApiResponse<T = unknown> {
@@ -104,27 +114,73 @@ class MayarClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    retries: number = 3
   ): Promise<MayarApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`;
+    const timeoutMs = 30_000; // 30 seconds
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-        ...options.headers,
-      },
-    });
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(
-        `Mayar API Error [${response.status}]: ${errorBody}`
-      );
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.apiKey}`,
+            ...options.headers,
+          },
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          // Don't retry on client errors (4xx), only on server errors (5xx)
+          if (response.status >= 400 && response.status < 500) {
+            throw new Error(
+              `Mayar API Error [${response.status}]: ${errorBody}`
+            );
+          }
+          // Server error — retry if attempts remaining
+          if (attempt < retries) {
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10_000);
+            console.warn(
+              `[MayarClient] Server error ${response.status} on ${endpoint}, retry ${attempt}/${retries} in ${delay}ms`
+            );
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+          throw new Error(
+            `Mayar API Error [${response.status}] after ${retries} attempts: ${errorBody}`
+          );
+        }
+
+        return response.json() as Promise<MayarApiResponse<T>>;
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") {
+          if (attempt < retries) {
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10_000);
+            console.warn(
+              `[MayarClient] Timeout on ${endpoint}, retry ${attempt}/${retries} in ${delay}ms`
+            );
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+          throw new Error(
+            `Mayar API Timeout on ${endpoint} after ${retries} attempts`
+          );
+        }
+        // Non-retryable errors (e.g., 4xx already thrown above)
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
     }
 
-    return response.json() as Promise<MayarApiResponse<T>>;
+    // Should never reach here, but TypeScript needs this
+    throw new Error(`Mayar API: Unexpected exit from retry loop on ${endpoint}`);
   }
 
   // ─── Invoice ──────────────────────────────────────────────
@@ -151,6 +207,12 @@ class MayarClient {
     });
   }
 
+  async cancelInvoice(invoiceId: string) {
+    return this.request<{ success: boolean; message: string }>(`/invoices/${invoiceId}/cancel`, {
+      method: "POST",
+    });
+  }
+
   // ─── Payment Request ─────────────────────────────────────
 
   async createPaymentRequest(payload: MayarPaymentRequestPayload) {
@@ -173,10 +235,33 @@ class MayarClient {
     });
   }
 
+  // ─── Products ─────────────────────────────────────────────
+
+  async createPaymentLinkProduct(payload: MayarProductPayload) {
+    return this.request<{ id: string; link: string; name: string }>("/products/payment-link", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateProduct(productId: string, payload: Partial<MayarProductPayload>) {
+    return this.request<{ id: string }>("/products/" + productId, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  }
+
   async searchCustomerByEmail(email: string) {
     return this.request<MayarCustomerData>(
       `/customers/search?email=${encodeURIComponent(email)}`
     );
+  }
+
+  async sendPortalLink(email: string) {
+    return this.request<{ success: boolean; message: string }>("/customers/send-portal-link", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
   }
 
   // ─── Transactions ─────────────────────────────────────────
@@ -203,12 +288,6 @@ class MayarClient {
     return this.request<unknown>("/transactions/daily");
   }
 
-  // ─── Balance ──────────────────────────────────────────────
-
-  async getAccountBalance() {
-    return this.request<MayarBalanceData>("/balance");
-  }
-
   // ─── QR Code ──────────────────────────────────────────────
 
   async createDynamicQR(amount: number) {
@@ -226,6 +305,21 @@ class MayarClient {
 
   async getStatistics() {
     return this.request<unknown>("/statistics");
+  }
+
+  // ─── Account / Balance ──────────────────────────────────────
+
+  async getBalance() {
+    return this.request<MayarBalanceData>("/balance");
+  }
+
+  // ─── Coupons ──────────────────────────────────────────────
+
+  async validateCoupon(payload: { couponCode: string; paymentLinkId: string; amount: number; membershipTierId?: string }) {
+    return this.request<unknown>("/coupons/validate", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
   }
 }
 

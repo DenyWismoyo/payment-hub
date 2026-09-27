@@ -26,25 +26,49 @@ export async function GET(request: NextRequest) {
       query = query.where("status", "==", status);
     }
 
-    const snapshot = await query.orderBy("createdAt", "desc").get();
-    
-    let billings: Billing[] = [];
-    snapshot.forEach((doc) => {
-      billings.push({ id: doc.id, ...doc.data() } as Billing);
-    });
+    const countSnapshot = await query.count().get();
+    const total = countSnapshot.data().count;
 
+    let paginatedBillings: Billing[] = [];
+    
+    // For search, we might need to fetch everything matching the status.
+    // If search is active, we can't easily paginate in Firestore without text search extensions like Algolia.
+    // So we'll fallback to manual filter if search is present, else use Firestore pagination.
     if (search) {
+      const SEARCH_MAX = 200;
+      const allDocs = await query.orderBy("createdAt", "desc").limit(SEARCH_MAX).get();
+      const allBillings: Billing[] = [];
+      allDocs.forEach((doc) => allBillings.push({ id: doc.id, ...doc.data() } as Billing));
+      
       const s = search.toLowerCase();
-      billings = billings.filter(b => 
+      const filtered = allBillings.filter(b => 
         b.billingNumber?.toLowerCase().includes(s) ||
         b.clientName?.toLowerCase().includes(s) ||
         b.accessCode?.toLowerCase().includes(s)
       );
+      
+      paginatedBillings = filtered.slice((page - 1) * limit, page * limit);
+      // override total if search is active
+      const searchTotal = filtered.length;
+      return NextResponse.json({
+        success: true,
+        data: paginatedBillings,
+        pagination: { total: searchTotal, page, limit, totalPages: Math.ceil(searchTotal / limit) }
+      });
     }
 
-    const total = billings.length;
+    // No search, use Firestore optimization
+    const snapshot = await query
+      .orderBy("createdAt", "desc")
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .get();
+    
+    snapshot.forEach((doc) => {
+      paginatedBillings.push({ id: doc.id, ...doc.data() } as Billing);
+    });
+
     const totalPages = Math.ceil(total / limit);
-    const paginatedBillings = billings.slice((page - 1) * limit, page * limit);
 
     return NextResponse.json({ 
       success: true, 
@@ -93,12 +117,17 @@ export async function POST(request: NextRequest) {
     }
     const itemData = itemDoc.data() as CatalogItem;
 
+    // Generate Access Code
+    const accessCode = generateAccessCode();
+    
     // 1. Create Mayar Invoice
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const mayarPayload = {
       name: clientData.name,
       email: clientData.email,
       mobile: clientData.phone || "000000000000",
       description: `Tagihan untuk ${clientData.name} - ${itemData.name} - ${notes || ""}`,
+      redirectUrl: `${appUrl}/pay/${accessCode}/success`,
       items: [
         {
           quantity: 1,
@@ -114,10 +143,7 @@ export async function POST(request: NextRequest) {
       throw new Error("Failed to create Mayar Invoice");
     }
 
-    // 2. Generate Access Code
-    const accessCode = generateAccessCode();
-
-    // 3. Prepare Billing record
+    // 2. Prepare Billing record
     // Generate sequential billing number (atomic, no collision)
     const billingNumber = await generateBillingNumber();
 
@@ -137,10 +163,15 @@ export async function POST(request: NextRequest) {
       taxDetails: taxDetails || [],
       taxTotal: taxTotal || 0,
       grandTotal,
+      currency: itemData.currency || "IDR",
 
       mayarInvoiceId: mayarRes.data.id,
       mayarPaymentUrl: mayarRes.data.link,
       mayarStatus: "PENDING",
+
+      // Payment info (diisi dari webhook saat pembayaran berhasil)
+      paymentMethod: null,
+      paymentChannel: null,
 
       status: "issued",
 
@@ -149,7 +180,7 @@ export async function POST(request: NextRequest) {
       paidAt: null,
       
       notes: notes || "",
-      createdBy: "admin", // in real app, from auth token
+      createdBy: auth.email,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -174,7 +205,7 @@ export async function POST(request: NextRequest) {
     await batch.commit();
 
     await logAdminAction({
-      adminEmail: "admin@sosocreativehub.com", // In a real app this should come from auth.decodedToken
+      adminEmail: auth.email,
       action: "CREATE",
       resource: "BILLING",
       resourceId: billingRef.id,
@@ -191,6 +222,19 @@ export async function POST(request: NextRequest) {
         grandTotal,
         paymentUrl: mayarRes.data.link,
         dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      });
+    }
+
+    if (clientData.phone) {
+      const portalPayLink = `${appUrl}/pay/${accessCode}`;
+      const { formatRupiah } = await import("@/lib/utils");
+      
+      const waMessage = `Halo *${clientData.name}*,\n\nTagihan baru telah diterbitkan untuk Anda sebesar *${formatRupiah(grandTotal)}*.\n\nNomor Tagihan: ${billingNumber}\nBatas Pembayaran: ${new Date(dueDate || Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}\n\nSilakan klik tautan di bawah ini untuk melihat detail dan melakukan pembayaran:\n${portalPayLink}\n\nAtau gunakan kode akses: *${accessCode}*\n\nTerima kasih,\nSOSO Creative Hub`;
+
+      const { sendWhatsApp } = await import("@/lib/utils/whatsapp");
+      await sendWhatsApp({
+        to: clientData.phone,
+        message: waMessage
       });
     }
 

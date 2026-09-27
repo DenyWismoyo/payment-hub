@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebase/admin";
 import { verifyAuthToken } from "@/lib/auth/verify-token";
 import type { Billing } from "@/types";
 import { logAdminAction } from "@/lib/utils/audit";
+import { mayarClient } from "@/lib/mayar/client";
 
 export async function GET(
   request: NextRequest,
@@ -63,13 +64,24 @@ export async function PUT(
       return NextResponse.json({ success: false, message: "Tagihan tidak ditemukan" }, { status: 404 });
     }
 
+    const currentBilling = doc.data() as Billing;
+
+    if (body.status === "cancelled" && currentBilling.status !== "cancelled" && currentBilling.mayarInvoiceId) {
+      try {
+        await mayarClient.cancelInvoice(currentBilling.mayarInvoiceId);
+      } catch (error) {
+        console.warn(`[PUT /api/billings/${id}] Failed to cancel invoice in Mayar:`, error);
+        // Continue to cancel locally even if Mayar fails
+      }
+    }
+
     await ref.update(updateData);
 
     const updatedDoc = await ref.get();
     const billing = { id: updatedDoc.id, ...updatedDoc.data() } as Billing;
 
     await logAdminAction({
-      adminEmail: "admin@sosocreativehub.com",
+      adminEmail: auth.email,
       action: "UPDATE",
       resource: "BILLING",
       resourceId: id,
@@ -112,7 +124,7 @@ export async function DELETE(
     });
 
     await logAdminAction({
-      adminEmail: "admin@sosocreativehub.com",
+      adminEmail: auth.email,
       action: "CANCEL",
       resource: "BILLING",
       resourceId: id,

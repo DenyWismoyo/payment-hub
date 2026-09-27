@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Activity,
+  Repeat,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { signOut } from "@/lib/firebase/auth";
@@ -25,6 +26,7 @@ import { ThemeToggle } from "@/components/common/ThemeToggle";
 const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/catalogs", label: "Katalog", icon: FolderOpen },
+  { href: "/admin/subscriptions", label: "Langganan", icon: Repeat },
   { href: "/admin/billings", label: "Tagihan", icon: FileText },
   { href: "/admin/payments", label: "Pembayaran", icon: CreditCard },
   { href: "/admin/clients", label: "Klien", icon: Users },

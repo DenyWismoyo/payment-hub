@@ -1,62 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { verifyAuthToken } from "@/lib/auth/verify-token";
-import type { Billing } from "@/types";
+import type { TaxAllocation } from "@/types";
 
 export async function GET(request: NextRequest) {
   const auth = await verifyAuthToken(request);
   if (!auth.success) return auth.response;
 
   try {
-    const billingsRef = adminDb.collection("billings");
-    const snapshot = await billingsRef.where("status", "==", "paid").get();
+    const period = request.nextUrl.searchParams.get("period"); // e.g. "2026-09"
     
-    let totalTaxCollected = 0;
-    const taxBreakdown: Record<string, number> = {};
-    const taxHistory: import("@/types").TaxHistoryItem[] = [];
-
-    snapshot.forEach((doc) => {
-      const b = doc.data() as Billing;
-      
-      if (b.taxDetails && Array.isArray(b.taxDetails)) {
-        b.taxDetails.forEach(tax => {
-          if (!taxBreakdown[tax.name]) {
-            taxBreakdown[tax.name] = 0;
-          }
-          taxBreakdown[tax.name] += tax.amount;
-          totalTaxCollected += tax.amount;
-
-          taxHistory.push({
-            id: doc.id,
-            billingNumber: b.billingNumber,
-            clientName: b.clientName,
-            taxName: tax.name,
-            amount: tax.amount,
-            date: b.updatedAt || b.createdAt
-          });
-        });
+    let query: FirebaseFirestore.Query = adminDb.collection("tax_allocations");
+    if (period) {
+      query = query.where("period", "==", period);
+    }
+    
+    const snapshot = await query.get();
+    
+    const allocations = snapshot.docs.map(doc => doc.data() as TaxAllocation);
+    
+    // Group by taxType
+    const summary: Record<string, number> = {};
+    let totalTax = 0;
+    
+    allocations.forEach(tax => {
+      if (!summary[tax.taxType]) {
+        summary[tax.taxType] = 0;
       }
+      summary[tax.taxType] += tax.amount;
+      totalTax += tax.amount;
     });
 
-    // Format breakdown into array
-    const breakdownArray = Object.keys(taxBreakdown).map(key => ({
-      name: key,
-      amount: taxBreakdown[key]
-    })).sort((a, b) => b.amount - a.amount);
-
-    taxHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    return NextResponse.json({
-      success: true,
+    return NextResponse.json({ 
+      success: true, 
       data: {
-        totalTaxCollected,
-        breakdown: breakdownArray,
-        history: taxHistory.slice(0, 50) // Return last 50 for table
-      }
+        period: period || "All Time",
+        allocations,
+        summary,
+        totalTax
+      } 
     });
-
   } catch (error: unknown) {
-    console.error("[Tax Report API]", error);
+    console.error("[GET /api/tax/report]", error);
     return NextResponse.json(
       { success: false, message: (error instanceof Error ? error.message : String(error)) },
       { status: 500 }

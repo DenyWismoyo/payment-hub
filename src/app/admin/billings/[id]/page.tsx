@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Printer, ExternalLink, ReceiptText, CheckCircle, Clock, XCircle } from "lucide-react";
+import { ArrowLeft, Printer, ExternalLink, ReceiptText, CheckCircle, Clock, XCircle, Copy } from "lucide-react";
 import type { Billing } from "@/types";
 import { formatRupiah } from "@/lib/utils";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
@@ -71,6 +71,13 @@ export default function BillingDetailPage() {
     }
   };
 
+  const handleCopyPaymentLink = () => {
+    if (billing?.mayarPaymentUrl) {
+      navigator.clipboard.writeText(billing.mayarPaymentUrl);
+      toast.success("Payment Link berhasil disalin!");
+    }
+  };
+
   if (loading) return <div className="text-center py-20 text-gray-500">Memuat detail tagihan...</div>;
   if (error || !billing) return <div className="text-center py-20 text-red-500">{error || "Tagihan tidak ditemukan"}</div>;
 
@@ -115,15 +122,24 @@ export default function BillingDetailPage() {
             </button>
           )}
           {billing.mayarPaymentUrl && (
-            <a
-              href={billing.mayarPaymentUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-all hover:-translate-y-0.5"
-            >
-              <ExternalLink className="w-4 h-4" />
-              Buka Payment Link
-            </a>
+            <>
+              <button
+                onClick={handleCopyPaymentLink}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 transition-all"
+              >
+                <Copy className="w-4 h-4" />
+                Copy Link
+              </button>
+              <a
+                href={billing.mayarPaymentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-all hover:-translate-y-0.5"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Buka Link
+              </a>
+            </>
           )}
         </div>
       </div>

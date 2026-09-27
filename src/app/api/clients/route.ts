@@ -4,6 +4,7 @@ import { verifyAuthToken } from "@/lib/auth/verify-token";
 import type { Client } from "@/types";
 import { clientSchema } from "@/lib/validations/client";
 import { logAdminAction } from "@/lib/utils/audit";
+import { mayarClient } from "@/lib/mayar/client";
 
 export async function GET(request: NextRequest) {
   const auth = await verifyAuthToken(request);
@@ -43,6 +44,36 @@ export async function POST(request: NextRequest) {
 
     const validatedData = parseResult.data;
 
+    let mayarCustomerId = null;
+    try {
+      if (validatedData.email) {
+        // Coba cari dulu, barangkali sudah ada di Mayar (opsional tapi aman)
+        try {
+          const searchRes = await mayarClient.searchCustomerByEmail(validatedData.email);
+          if (searchRes.data && searchRes.data.id) {
+            mayarCustomerId = searchRes.data.id;
+          }
+        } catch (e) {
+          // Abaikan error pencarian
+        }
+
+        // Jika tidak ada di Mayar, buat baru
+        if (!mayarCustomerId) {
+          const mayarRes = await mayarClient.createCustomer({
+            name: validatedData.name,
+            email: validatedData.email,
+            mobile: validatedData.phone || undefined,
+          });
+          if (mayarRes.data && mayarRes.data.id) {
+            mayarCustomerId = mayarRes.data.id;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("[POST /api/clients] Failed to sync customer with Mayar:", error);
+      // Tetap lanjutkan pembuatan client lokal meskipun gagal sync ke Mayar
+    }
+
     const newClient: Partial<Client> = {
       name: validatedData.name,
       email: validatedData.email || "",
@@ -51,7 +82,7 @@ export async function POST(request: NextRequest) {
       organization: validatedData.type === "individual" ? "-" : validatedData.name,
       npwp: validatedData.npwp || "",
       address: validatedData.address || "",
-      mayarCustomerId: null, // Will be filled when synced with Mayar
+      mayarCustomerId,
       totalBillings: 0,
       totalPaid: 0,
       createdAt: new Date().toISOString(),
@@ -61,7 +92,7 @@ export async function POST(request: NextRequest) {
     const client = { id: docRef.id, ...newClient };
 
     await logAdminAction({
-      adminEmail: "admin@sosocreativehub.com",
+      adminEmail: auth.email,
       action: "CREATE",
       resource: "CLIENT",
       resourceId: docRef.id,

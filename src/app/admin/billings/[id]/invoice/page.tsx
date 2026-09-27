@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type { Billing } from "@/types";
 import { formatRupiah } from "@/lib/utils";
-import { Printer } from "lucide-react";
+import { Printer, Download } from "lucide-react";
+import dynamic from "next/dynamic";
+import { InvoicePDF } from "@/components/pdf/InvoicePDF";
+
+const PDFDownloadLink = dynamic(
+  () => import("@react-pdf/renderer").then((mod) => mod.PDFDownloadLink),
+  { ssr: false }
+);
 
 export default function InvoicePrintPage() {
   const params = useParams();
@@ -29,12 +36,27 @@ export default function InvoicePrintPage() {
       <div className="max-w-[21cm] min-h-[29.7cm] mx-auto bg-white p-12 shadow-lg relative print:shadow-none print:bg-transparent print:p-0">
         
         {/* Floating Print Button */}
-        <button 
-          onClick={() => window.print()}
-          className="absolute top-8 right-8 flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-blue-700 print:hidden"
-        >
-          <Printer className="w-4 h-4" /> Cetak PDF
-        </button>
+        <div className="absolute top-8 right-8 flex items-center gap-2 print:hidden">
+          <button 
+            onClick={() => window.print()}
+            className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg shadow-md hover:bg-gray-200 transition-colors"
+          >
+            <Printer className="w-4 h-4" /> Cetak (Print)
+          </button>
+          
+          <PDFDownloadLink
+            document={<InvoicePDF billing={billing} />}
+            fileName={`Invoice-${billing.billingNumber}.pdf`}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-blue-700 transition-colors"
+          >
+            {({ loading }) => (
+              <>
+                <Download className="w-4 h-4" />
+                {loading ? "Menyiapkan PDF..." : "Unduh PDF"}
+              </>
+            )}
+          </PDFDownloadLink>
+        </div>
 
         {/* Invoice Header */}
         <div className="flex justify-between items-start border-b-2 border-gray-200 pb-8 mb-8">

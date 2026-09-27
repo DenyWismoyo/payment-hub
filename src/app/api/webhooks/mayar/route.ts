@@ -37,7 +37,13 @@ export async function POST(request: NextRequest) {
       .update(rawBody)
       .digest("hex");
 
-    if (signature !== expectedSignature) {
+    const sigBuffer = Buffer.from(signature, "utf-8");
+    const expectedBuffer = Buffer.from(expectedSignature, "utf-8");
+
+    if (
+      sigBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(sigBuffer, expectedBuffer)
+    ) {
       await logWebhook("invalid_signature", null, rawBody, "rejected", receivedAt);
       return NextResponse.json({ message: "Invalid signature" }, { status: 401 });
     }
@@ -94,6 +100,7 @@ export async function POST(request: NextRequest) {
         mayarTransactionId: mayarInvoiceId,
         status: "paid",
         amount: billingData.grandTotal || data.amount,
+        currency: billingData.currency || "IDR",
         paymentMethod: data.paymentMethod || "unknown",
         paymentChannel: data.paymentChannel || "unknown",
         paidAt,
@@ -168,6 +175,142 @@ export async function POST(request: NextRequest) {
 
       await updateWebhookLog(logId, "success", `Billing ${billingDoc.id} marked as PAID`);
       console.log(`[Webhook] Successfully processed payment for billing ${billingDoc.id}`);
+
+      // ── 9. Send Payment Confirmation Email & WA ────────────────
+      if (billingData.clientEmail) {
+        const { sendBillingEmail } = await import("@/lib/utils/email");
+        await sendBillingEmail({
+          to: billingData.clientEmail,
+          subject: `Pembayaran Berhasil: ${billingData.billingNumber}`,
+          billingNumber: billingData.billingNumber,
+          clientName: billingData.clientName,
+          accessCode: billingData.accessCode,
+          grandTotal: billingData.grandTotal || data.amount,
+          templateType: "paid",
+        });
+      }
+
+      // We need client document to get the phone number
+      const clientDoc = await adminDb.collection("clients").doc(billingData.clientId).get();
+      if (clientDoc.exists) {
+        const clientData = clientDoc.data();
+        if (clientData?.phone) {
+          const { sendWhatsApp } = await import("@/lib/utils/whatsapp");
+          const { formatRupiah } = await import("@/lib/utils");
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+          const receiptUrl = `${appUrl}/pay/${billingData.accessCode}/receipt`;
+          
+          const waMessage = `Halo *${billingData.clientName}*,\n\nTerima kasih, pembayaran untuk tagihan *${billingData.billingNumber}* sebesar *${formatRupiah(billingData.grandTotal || data.amount)}* telah kami terima.\n\nLihat & unduh bukti pembayaran (kuitansi) pada tautan berikut:\n${receiptUrl}\n\nSalam,\nSOSO Creative Hub`;
+          
+          await sendWhatsApp({
+            to: clientData.phone,
+            message: waMessage
+          });
+        }
+      }
+    } else if (event === "transaction.refunded") {
+      const mayarInvoiceId = data.id;
+
+      const billingsRef = adminDb.collection("billings");
+      const snapshot = await billingsRef.where("mayarInvoiceId", "==", mayarInvoiceId).get();
+
+      if (snapshot.empty) {
+        await updateWebhookLog(logId, "ignored", "No matching billing found for refund");
+        return NextResponse.json({ success: true, message: "Ignored: No matching billing" });
+      }
+
+      const billingDoc = snapshot.docs[0];
+      const billingData = billingDoc.data();
+
+      if (billingData.status === "refunded") {
+        await updateWebhookLog(logId, "duplicate", "Billing already refunded");
+        return NextResponse.json({ success: true, message: "Already refunded" });
+      }
+
+      await billingDoc.ref.update({
+        status: "refunded",
+        mayarStatus: "REFUNDED",
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Update payment status if exists
+      const paymentsRef = adminDb.collection("payments");
+      const paymentSnapshot = await paymentsRef.where("billingId", "==", billingDoc.id).get();
+      if (!paymentSnapshot.empty) {
+        await paymentSnapshot.docs[0].ref.update({
+          status: "refunded",
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      // Deduct client totalPaid
+      if (billingData.clientId) {
+        const clientRef = adminDb.collection("clients").doc(billingData.clientId);
+        await adminDb.runTransaction(async (transaction) => {
+          const clientDoc = await transaction.get(clientRef);
+          if (clientDoc.exists) {
+            const clientData = clientDoc.data();
+            transaction.update(clientRef, {
+              totalPaid: Math.max(0, (clientData?.totalPaid || 0) - (billingData.grandTotal || 0)),
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        });
+      }
+
+      await updateWebhookLog(logId, "success", `Billing ${billingDoc.id} marked as REFUNDED`);
+      console.log(`[Webhook] Successfully processed refund for billing ${billingDoc.id}`);
+
+    } else if (event === "transaction.expired" || event === "payment.expired") {
+      const mayarInvoiceId = data.id;
+
+      const billingsRef = adminDb.collection("billings");
+      const snapshot = await billingsRef.where("mayarInvoiceId", "==", mayarInvoiceId).get();
+
+      if (snapshot.empty) {
+        await updateWebhookLog(logId, "ignored", "No matching billing found for expired event");
+        return NextResponse.json({ success: true, message: "Ignored: No matching billing" });
+      }
+
+      const billingDoc = snapshot.docs[0];
+      const billingData = billingDoc.data();
+
+      // Hanya update jika belum paid/cancelled/refunded
+      if (["paid", "cancelled", "refunded"].includes(billingData.status)) {
+        await updateWebhookLog(logId, "ignored", `Billing ${billingDoc.id} already ${billingData.status}, skipping expired event`);
+        return NextResponse.json({ success: true, message: `Already ${billingData.status}` });
+      }
+
+      await billingDoc.ref.update({
+        status: "cancelled",
+        mayarStatus: "EXPIRED",
+        updatedAt: new Date().toISOString(),
+      });
+
+      await updateWebhookLog(logId, "success", `Billing ${billingDoc.id} marked as EXPIRED/CANCELLED`);
+      console.log(`[Webhook] Successfully processed expired event for billing ${billingDoc.id}`);
+
+    } else if (event === "transaction.failed" || event === "payment.failed") {
+      const mayarInvoiceId = data.id;
+
+      const billingsRef = adminDb.collection("billings");
+      const snapshot = await billingsRef.where("mayarInvoiceId", "==", mayarInvoiceId).get();
+
+      if (!snapshot.empty) {
+        const billingDoc = snapshot.docs[0];
+        const billingData = billingDoc.data();
+
+        if (!["paid", "cancelled", "refunded"].includes(billingData.status)) {
+          await billingDoc.ref.update({
+            mayarStatus: "FAILED",
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      await updateWebhookLog(logId, "success", `Payment failed event processed for ${mayarInvoiceId}`);
+      console.log(`[Webhook] Payment failed for Mayar ID: ${mayarInvoiceId}`);
+
     } else {
       await updateWebhookLog(logId, "ignored", `Unhandled event: ${event}`);
     }

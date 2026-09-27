@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { verifyAuthToken } from "@/lib/auth/verify-token";
-import type { CatalogItem } from "@/types";
+import type { CatalogItem, Catalog } from "@/types";
+import { mayarClient } from "@/lib/mayar/client";
 
 export async function GET(
   request: NextRequest,
@@ -61,14 +62,34 @@ export async function POST(
       return NextResponse.json({ success: false, message: "Nama dan harga diperlukan" }, { status: 400 });
     }
 
+    let mayarProductId = body.mayarProductId || null;
+    let mayarPaymentLink = body.mayarPaymentLink || null;
+
+    if (!mayarProductId) {
+      try {
+        const mayarRes = await mayarClient.createPaymentLinkProduct({
+          name: body.name,
+          amount: Number(body.price),
+          description: body.description || `Pembayaran untuk ${body.name}`,
+        });
+        if (mayarRes.data && mayarRes.data.id) {
+          mayarProductId = mayarRes.data.id;
+          mayarPaymentLink = mayarRes.data.link || null;
+        }
+      } catch (error) {
+        console.warn(`[POST /api/catalogs/${params?.id}/items] Failed to sync with Mayar:`, error);
+        // Continue creating locally even if Mayar fails
+      }
+    }
+
     const newItem: Partial<CatalogItem> = {
       catalogId,
       name: body.name,
       description: body.description || "",
       price: Number(body.price),
       currency: body.currency || "IDR",
-      mayarProductId: body.mayarProductId || null,
-      mayarPaymentLink: body.mayarPaymentLink || null,
+      mayarProductId,
+      mayarPaymentLink,
       billingType: body.billingType || "one_time",
       taxConfig: body.taxConfig || { isEnabled: false, allocations: [] },
       isActive: body.isActive !== undefined ? body.isActive : true,
