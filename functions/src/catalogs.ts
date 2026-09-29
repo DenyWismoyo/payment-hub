@@ -106,6 +106,70 @@ app.post("/:id/items", async (req: Request, res: Response) => {
   } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
 });
 
+app.put("/:id/items/:itemId", async (req: Request, res: Response) => {
+  if (handleOptions(req, res)) return;
+  const authResult = await verifyToken(req, res);
+  if (!authResult) return;
+  try {
+    const catalogId = getString(req.params.id);
+    const itemId = getString(req.params.itemId);
+    const body = req.body;
+    
+    const itemRef = db.collection("catalog_items").doc(itemId);
+    const itemDoc = await itemRef.get();
+    
+    if (!itemDoc.exists || itemDoc.data()?.catalogId !== catalogId) {
+       res.status(404).json({ success: false, message: "Item tidak ditemukan atau tidak sesuai dengan katalog" });
+       return;
+    }
+
+    const updateData: any = { updatedAt: new Date().toISOString() };
+    if (body.name) updateData.name = body.name;
+    if (body.description !== undefined) updateData.description = body.description;
+    if (body.price !== undefined) updateData.price = Number(body.price);
+    if (body.currency) updateData.currency = body.currency;
+    if (body.mayarProductId !== undefined) updateData.mayarProductId = body.mayarProductId;
+    if (body.mayarPaymentLink !== undefined) updateData.mayarPaymentLink = body.mayarPaymentLink;
+    if (body.billingType) updateData.billingType = body.billingType;
+    if (body.taxConfig) updateData.taxConfig = body.taxConfig;
+    if (body.isActive !== undefined) updateData.isActive = body.isActive;
+
+    await itemRef.update(updateData);
+    const updatedDoc = await itemRef.get();
+    res.json({ success: true, data: { id: updatedDoc.id, ...updatedDoc.data() } });
+  } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
+});
+
+app.delete("/:id/items/:itemId", async (req: Request, res: Response) => {
+  if (handleOptions(req, res)) return;
+  const authResult = await verifyToken(req, res);
+  if (!authResult) return;
+  try {
+    const catalogId = getString(req.params.id);
+    const itemId = getString(req.params.itemId);
+    
+    const itemRef = db.collection("catalog_items").doc(itemId);
+    const itemDoc = await itemRef.get();
+    
+    if (!itemDoc.exists || itemDoc.data()?.catalogId !== catalogId) {
+       res.status(404).json({ success: false, message: "Item tidak ditemukan" });
+       return;
+    }
+
+    await itemRef.delete();
+
+    // Decrement catalog itemCount
+    const catalogRef = db.collection("catalogs").doc(catalogId);
+    const catalogDoc = await catalogRef.get();
+    if (catalogDoc.exists) {
+      const currentCount = catalogDoc.data()?.itemCount || 0;
+      await catalogRef.update({ itemCount: Math.max(0, currentCount - 1) });
+    }
+
+    res.json({ success: true, message: "Item berhasil dihapus" });
+  } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
+});
+
 app.put("/:id", async (req: Request, res: Response) => {
   if (handleOptions(req, res)) return;
   const authResult = await verifyToken(req, res);
