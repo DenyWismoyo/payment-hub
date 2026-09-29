@@ -1,0 +1,29 @@
+{
+  "name": "soso-payment-api",
+  "version": "1.0.0",
+  "description": "SOSO Creative Hub - Payment Hub Backend API (Firebase Cloud Functions)",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@types/express": "^5.0.6",
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.0.0",
+    "jsonwebtoken": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20",
+    "eslint": "^9",
+    "typescript": "^5"
+  }
+}
