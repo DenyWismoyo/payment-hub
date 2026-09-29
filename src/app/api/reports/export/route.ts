@@ -1,70 +1,75 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { verifyAuthToken } from "@/lib/auth/verify-token";
-import type { Billing } from "@/types";
+import { logAdminAction } from "@/lib/utils/audit";
+import Papa from "papaparse";
 
 export async function GET(request: NextRequest) {
-  const type = request.nextUrl.searchParams.get("type") || "billings";
-
-  const auth = await verifyAuthToken(request);
-  if (!auth.success) return auth.response;
-
   try {
-    const billingsRef = adminDb.collection("billings");
-    const snapshot = await billingsRef.get();
-
-    let csvHeader = "";
-    let csvRows: string[] = [];
-
-    if (type === "billings") {
-      csvHeader = "ID Tagihan,Client,Katalog,Status,Subtotal,Total Pajak,Grand Total,Tanggal Terbit,Jatuh Tempo\n";
-      snapshot.forEach((doc) => {
-        const b = doc.data() as Billing;
-        const row = [
-          b.billingNumber,
-          `"${b.clientName}"`,
-          `"${b.catalogItemName}"`,
-          b.status,
-          b.subtotal,
-          b.taxTotal,
-          b.grandTotal,
-          new Date(b.issuedAt).toISOString().split('T')[0],
-          new Date(b.dueDate).toISOString().split('T')[0]
-        ].join(",");
-        csvRows.push(row);
-      });
-    } else if (type === "tax") {
-      csvHeader = "ID Tagihan,Client,Katalog,Jenis Pajak,Jumlah Pajak,Tanggal Lunas\n";
-      snapshot.forEach((doc) => {
-        const b = doc.data() as Billing;
-        if (b.status === "paid" && b.taxDetails) {
-          b.taxDetails.forEach(tax => {
-            const row = [
-              b.billingNumber,
-              `"${b.clientName}"`,
-              `"${b.catalogItemName}"`,
-              `"${tax.name}"`,
-              tax.amount,
-              b.updatedAt ? new Date(b.updatedAt).toISOString().split('T')[0] : ""
-            ].join(",");
-            csvRows.push(row);
-          });
-        }
-      });
+    const auth = await verifyAuthToken(request);
+    if (!auth.success || !auth.uid) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const csvData = csvHeader + csvRows.join("\n");
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type'); // 'billings' | 'payments' | 'tax'
+    const start = searchParams.get('startDate');
+    const end = searchParams.get('endDate');
 
-    const response = new NextResponse(csvData);
-    response.headers.set("Content-Type", "text/csv; charset=utf-8");
-    response.headers.set("Content-Disposition", `attachment; filename="export_${type}_${new Date().toISOString().split('T')[0]}.csv"`);
+    if (!type || !['billings', 'payments', 'tax'].includes(type)) {
+      return NextResponse.json({ message: "Invalid export type" }, { status: 400 });
+    }
 
-    return response;
+    let query = adminDb.collection(type === 'tax' ? 'tax_allocations' : type).orderBy('createdAt', 'desc');
 
-  } catch (error: unknown) {
-    console.error("[Export API]", error);
+    if (start && end) {
+      query = query
+        .where('createdAt', '>=', new Date(start))
+        .where('createdAt', '<=', new Date(end));
+    }
+
+    const snapshot = await query.get();
+    
+    // Map data fields based on type
+    let data = snapshot.docs.map(doc => {
+      const docData = doc.data();
+      // Format timestamps
+      if (docData.createdAt && docData.createdAt.toDate) {
+        docData.createdAt = docData.createdAt.toDate().toISOString();
+      }
+      if (docData.updatedAt && docData.updatedAt.toDate) {
+        docData.updatedAt = docData.updatedAt.toDate().toISOString();
+      }
+      if (docData.dueDate && docData.dueDate.toDate) {
+        docData.dueDate = docData.dueDate.toDate().toISOString();
+      }
+      if (docData.paidAt && docData.paidAt.toDate) {
+        docData.paidAt = docData.paidAt.toDate().toISOString();
+      }
+      return docData;
+    });
+
+    const csv = Papa.unparse(data);
+
+    await logAdminAction({
+      adminEmail: auth.email,
+      action: "UPDATE",
+      resource: "BILLING",
+      resourceId: "export",
+      details: `Exported ${snapshot.docs.length} ${type} records to CSV`
+    });
+
+    return new NextResponse(csv, {
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="${type}-export-${new Date().toISOString().split('T')[0]}.csv"`
+      }
+    });
+
+  } catch (error: any) {
+    console.error("[Export API Error]", error);
     return NextResponse.json(
-      { success: false, message: (error instanceof Error ? error.message : String(error)) },
+      { success: false, message: error.message || "Failed to export data" },
       { status: 500 }
     );
   }

@@ -18,6 +18,7 @@ import {
   X,
   Activity,
   Repeat,
+  Tag,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { signOut } from "@/lib/firebase/auth";
@@ -30,6 +31,7 @@ const navItems = [
   { href: "/admin/billings", label: "Tagihan", icon: FileText },
   { href: "/admin/payments", label: "Pembayaran", icon: CreditCard },
   { href: "/admin/clients", label: "Klien", icon: Users },
+  { href: "/admin/coupons", label: "Kupon", icon: Tag },
   { href: "/admin/tax", label: "Pajak", icon: Calculator },
   { href: "/admin/audit", label: "Audit Log", icon: Activity },
   { href: "/admin/settings", label: "Pengaturan", icon: Settings },

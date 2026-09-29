@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, ShieldCheck, Receipt, Clock, CheckCircle, Globe } from "lucide-react";
+import { ArrowLeft, ExternalLink, ShieldCheck, Receipt, Clock, CheckCircle, Globe, ChevronRight } from "lucide-react";
 import type { Billing } from "@/types";
 import { formatRupiah } from "@/lib/utils";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -18,6 +18,7 @@ export default function PayDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const { lang, changeLanguage, t } = useLanguage();
+  const [isPolling, setIsPolling] = useState(false);
 
   useEffect(() => {
     async function fetchBilling() {
@@ -36,6 +37,27 @@ export default function PayDetailPage() {
     }
     fetchBilling();
   }, [code]);
+
+  // Polling for payment status
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isPolling && billing && billing.status !== 'paid') {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/access-codes?code=${code}`);
+          const json = await res.json();
+          if (json.valid && (json.billing.status === 'paid' || json.billing.mayarStatus === 'PAID')) {
+            setBilling(json.billing);
+            setIsPolling(false);
+            router.push(`/pay/${code}/receipt`); // Redirect to receipt instead of non-existent success page
+          }
+        } catch (e) {
+          console.error("Polling error", e);
+        }
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [isPolling, billing, code, router]);
 
   if (loading) {
     return (
@@ -95,23 +117,77 @@ export default function PayDetailPage() {
           </div>
         </div>
 
+        {/* Progress Tracker (Stepper) */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-gray-100 dark:border-slate-800 shadow-sm overflow-x-auto">
+          <div className="flex items-center justify-between min-w-[500px]">
+            <div className="flex flex-col items-center flex-1 relative">
+              <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center font-bold z-10 shadow-lg ring-4 ring-primary/20">
+                <CheckCircle className="w-5 h-5" />
+              </div>
+              <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">Diterima</p>
+            </div>
+            
+            <div className={`h-1 flex-1 -mx-8 z-0 transition-colors ${isPaid || isPolling ? 'bg-primary' : 'bg-gray-200 dark:bg-slate-800'}`} />
+            
+            <div className="flex flex-col items-center flex-1 relative">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold z-10 shadow-lg ring-4 transition-colors ${isPaid || isPolling ? 'bg-primary text-white ring-primary/20' : 'bg-primary text-white ring-primary/20'}`}>
+                {isPaid || isPolling ? <CheckCircle className="w-5 h-5" /> : '2'}
+              </div>
+              <p className="mt-2 text-sm font-semibold text-gray-900 dark:text-white">Tinjau</p>
+            </div>
+            
+            <div className={`h-1 flex-1 -mx-8 z-0 transition-colors ${isPaid ? 'bg-primary' : isPolling ? 'bg-primary/50 overflow-hidden relative' : 'bg-gray-200 dark:bg-slate-800'}`}>
+              {isPolling && !isPaid && (
+                <div className="absolute inset-0 bg-primary w-1/2 animate-[progress_1s_ease-in-out_infinite]" />
+              )}
+            </div>
+            
+            <div className="flex flex-col items-center flex-1 relative">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold z-10 shadow-lg transition-colors ${isPaid ? 'bg-primary text-white ring-4 ring-primary/20' : isPolling ? 'bg-primary text-white ring-4 ring-primary/20 animate-pulse' : 'bg-gray-100 dark:bg-slate-800 text-gray-400 border border-gray-200 dark:border-slate-700'}`}>
+                {isPaid ? <CheckCircle className="w-5 h-5" /> : '3'}
+              </div>
+              <p className={`mt-2 text-sm font-semibold ${isPaid || isPolling ? 'text-gray-900 dark:text-white' : 'text-gray-400'}`}>Membayar</p>
+            </div>
+            
+            <div className={`h-1 flex-1 -mx-8 z-0 transition-colors ${isPaid ? 'bg-primary' : 'bg-gray-200 dark:bg-slate-800'}`} />
+            
+            <div className="flex flex-col items-center flex-1 relative">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold z-10 shadow-lg transition-colors ${isPaid ? 'bg-green-500 text-white ring-4 ring-green-500/20' : 'bg-gray-100 dark:bg-slate-800 text-gray-400 border border-gray-200 dark:border-slate-700'}`}>
+                {isPaid ? <CheckCircle className="w-5 h-5" /> : '4'}
+              </div>
+              <p className={`mt-2 text-sm font-semibold ${isPaid ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>Selesai</p>
+            </div>
+          </div>
+        </div>
+
+        <style dangerouslySetInnerHTML={{__html: `
+          @keyframes progress {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(200%); }
+          }
+        `}} />
+
         {/* Status Card */}
         {isPaid ? (
           <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-900/50 rounded-2xl p-6 flex items-start gap-4 animate-scale-in">
             <CheckCircle className="w-8 h-8 text-green-500 shrink-0" />
-            <div>
+            <div className="flex-1">
               <h3 className="text-lg font-bold text-green-900 dark:text-green-400">{t.statusPaid}</h3>
               <p className="text-green-700 dark:text-green-500 mt-1">{t.thankYou}</p>
             </div>
+            <Link href={`/pay/${code}/receipt`} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap">
+              Lihat Kuitansi
+            </Link>
           </div>
         ) : (
           <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-900/50 rounded-2xl p-6 flex items-start gap-4">
             <Clock className="w-8 h-8 text-orange-500 shrink-0" />
             <div>
-              <h3 className="text-lg font-bold text-orange-900 dark:text-orange-400">{t.statusWaiting}</h3>
+              <h3 className="text-lg font-bold text-orange-900 dark:text-orange-400">{isPolling ? "Menunggu Konfirmasi Pembayaran..." : t.statusWaiting}</h3>
               <p className="text-orange-700 dark:text-orange-500 mt-1">
-                {lang === 'id' ? 'Mohon segera lakukan pembayaran sebelum tanggal' : 'Please complete your payment before'}{" "}
-                {new Date(billing.dueDate).toLocaleDateString(lang === 'id' ? 'id-ID' : 'en-US', { day: 'numeric', month: 'long', year: 'numeric' })}.
+                {isPolling 
+                  ? "Sistem sedang memverifikasi pembayaran Anda, halaman akan otomatis beralih setelah berhasil." 
+                  : (lang === 'id' ? 'Mohon segera lakukan pembayaran sebelum tanggal' : 'Please complete your payment before') + " " + new Date(billing.dueDate).toLocaleDateString(lang === 'id' ? 'id-ID' : 'en-US', { day: 'numeric', month: 'long', year: 'numeric' }) + "."}
               </p>
             </div>
           </div>
@@ -204,6 +280,9 @@ export default function PayDetailPage() {
             <div>
               <a 
                 href={billing.mayarPaymentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsPolling(true)}
                 className="inline-flex items-center justify-center gap-3 w-full sm:w-auto px-10 py-4 text-lg font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-2xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all"
               >
                 {t.payNow}

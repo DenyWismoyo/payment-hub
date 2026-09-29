@@ -27,8 +27,10 @@ export async function POST(
     const clientData = docSnap.data() as Client;
     
     // Generate Portal URL (SOSO local portal, NOT Mayar portal)
+    const { signPortalToken } = await import('@/lib/utils/jwt');
+    const token = await signPortalToken(id);
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const portalUrl = `${appUrl}/portal/${id}`;
+    const portalUrl = `${appUrl}/portal/${id}?token=${token}`;
 
     // Send email using Resend
     const emailResult = await sendPortalEmail({

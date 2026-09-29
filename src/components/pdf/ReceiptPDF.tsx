@@ -1,104 +1,84 @@
-import { Document, Page, Text, View, StyleSheet, Font } from '@react-pdf/renderer';
-import type { Billing } from "@/types";
-import { formatRupiah } from "@/lib/utils";
-
-// Format date
-const formatDate = (dateInput: Date | string | null | undefined) => {
-  if (!dateInput) return "-";
-  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
-  return date.toLocaleDateString("id-ID", {
-    day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
-  });
-};
+import React from 'react';
+import { Page, Text, View, Document, StyleSheet } from '@react-pdf/renderer';
+import { Billing, Client } from '@/types';
+import { formatRupiah } from '@/lib/utils';
 
 const styles = StyleSheet.create({
   page: {
     padding: 40,
-    fontFamily: 'Helvetica',
     fontSize: 10,
+    fontFamily: 'Helvetica',
     color: '#333333',
   },
   header: {
-    marginBottom: 30,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eeeeee',
-    paddingBottom: 20,
-    textAlign: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 40,
   },
   title: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#059669',
-    marginBottom: 8,
+    color: '#15803d', // Green to signify paid
   },
-  subtitle: {
-    fontSize: 10,
-    color: '#666666',
+  companyInfo: {
+    marginTop: 10,
+    color: '#6b7280',
   },
-  row: {
+  receiptInfo: {
+    textAlign: 'right',
+  },
+  section: {
+    marginBottom: 30,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 20,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eeeeee',
   },
-  col: {
-    flex: 1,
+  billTo: {
+    width: '50%',
   },
-  label: {
-    fontSize: 9,
-    color: '#666666',
-    marginBottom: 4,
+  paymentInfo: {
+    width: '40%',
+    backgroundColor: '#f0fdf4',
+    padding: 10,
+    borderRadius: 5,
   },
-  value: {
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#111827',
-  },
-  clientBox: {
-    backgroundColor: '#f9fafb',
-    padding: 15,
-    borderRadius: 8,
+  table: {
+    width: '100%',
     marginBottom: 30,
   },
-  clientName: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  itemRow: {
+  tableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  itemLabel: {
-    color: '#4b5563',
-  },
-  itemValue: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingBottom: 8,
+    marginBottom: 8,
     fontWeight: 'bold',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingBottom: 8,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  col1: { width: '50%' },
+  col2: { width: '25%', textAlign: 'right' },
+  col3: { width: '25%', textAlign: 'right' },
+  totals: {
+    alignItems: 'flex-end',
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
-    paddingTop: 15,
+    width: '40%',
+    marginBottom: 5,
+  },
+  grandTotal: {
+    fontWeight: 'bold',
+    fontSize: 12,
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
-  },
-  totalLabel: {
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  totalValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#059669',
+    paddingTop: 5,
+    marginTop: 5,
   },
   footer: {
     position: 'absolute',
@@ -107,65 +87,85 @@ const styles = StyleSheet.create({
     right: 40,
     textAlign: 'center',
     color: '#9ca3af',
-    fontSize: 8,
-  }
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 20,
+  },
 });
 
-export const ReceiptPDF = ({ billing }: { billing: Billing }) => (
-  <Document>
-    <Page size="A4" style={styles.page}>
-      <View style={styles.header}>
-        <Text style={styles.title}>BUKTI PEMBAYARAN</Text>
-        <Text style={styles.subtitle}>Terima kasih, pembayaran Anda telah berhasil kami terima.</Text>
-      </View>
+interface ReceiptPDFProps {
+  billing: Billing;
+  client?: Client;
+}
 
-      <View style={styles.row}>
-        <View style={styles.col}>
-          <Text style={styles.label}>No. Tagihan</Text>
-          <Text style={styles.value}>{billing.billingNumber}</Text>
-        </View>
-        <View style={styles.col}>
-          <Text style={styles.label}>Tanggal Pembayaran</Text>
-          <Text style={styles.value}>{formatDate(billing.paidAt)}</Text>
-        </View>
-        <View style={styles.col}>
-          <Text style={styles.label}>Metode</Text>
-          <Text style={styles.value}>
-            {billing.paymentMethod ? billing.paymentMethod.toUpperCase() : "-"} {billing.paymentChannel ? `(${billing.paymentChannel.toUpperCase()})` : ""}
-          </Text>
-        </View>
-      </View>
-
-      <Text style={styles.sectionTitle}>Detail Klien</Text>
-      <View style={styles.clientBox}>
-        <Text style={styles.clientName}>{billing.clientName}</Text>
-        <Text style={styles.itemLabel}>{billing.clientEmail}</Text>
-      </View>
-
-      <Text style={styles.sectionTitle}>Rincian Pembayaran</Text>
-      <View>
-        <View style={styles.itemRow}>
-          <Text style={styles.itemLabel}>{billing.catalogItemName}</Text>
-          <Text style={styles.itemValue}>{formatRupiah(billing.subtotal)}</Text>
-        </View>
-        
-        {billing.taxDetails && billing.taxDetails.map((tax, i) => (
-          <View key={i} style={styles.itemRow}>
-            <Text style={styles.itemLabel}>{tax.name} ({tax.percentage}%)</Text>
-            <Text style={styles.itemValue}>{tax.amount < 0 ? "-" : "+"}{formatRupiah(Math.abs(tax.amount))}</Text>
+export const ReceiptPDF: React.FC<ReceiptPDFProps> = ({ billing, client }) => {
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>OFFICIAL RECEIPT</Text>
+            <View style={styles.companyInfo}>
+              <Text>SOSO Creative Hub</Text>
+              <Text>hello@soso.co.id</Text>
+            </View>
           </View>
-        ))}
-
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Total Dibayar</Text>
-          <Text style={styles.totalValue}>{formatRupiah(billing.grandTotal)}</Text>
+          <View style={styles.receiptInfo}>
+            <Text style={{ fontWeight: 'bold' }}>RCT-{billing.billingNumber.replace("INV-", "")}</Text>
+            <Text>Date Paid: {billing.paidAt ? new Date(billing.paidAt).toLocaleDateString('id-ID') : '-'}</Text>
+            <Text>Invoice Ref: {billing.billingNumber}</Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.footer}>
-        <Text>Dokumen ini adalah bukti pembayaran yang sah.</Text>
-        <Text>Diterbitkan secara otomatis oleh sistem SOSO Creative Hub.</Text>
-      </View>
-    </Page>
-  </Document>
-);
+        <View style={styles.section}>
+          <View style={styles.billTo}>
+            <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>Received From:</Text>
+            <Text>{billing.clientName}</Text>
+            <Text>{billing.clientEmail}</Text>
+            {client?.phone && <Text>{client.phone}</Text>}
+          </View>
+          <View style={styles.paymentInfo}>
+            <Text style={{ fontWeight: 'bold', marginBottom: 5, color: '#15803d' }}>PAYMENT DETAILS</Text>
+            <Text>Status: PAID IN FULL</Text>
+            <Text>Method: {billing.paymentMethod || 'Unknown'}</Text>
+            <Text>Channel: {billing.paymentChannel || 'Unknown'}</Text>
+          </View>
+        </View>
+
+        <View style={styles.table}>
+          <View style={styles.tableHeader}>
+            <Text style={styles.col1}>Item Description</Text>
+            <Text style={styles.col2}>Amount</Text>
+            <Text style={styles.col3}>Total</Text>
+          </View>
+          
+          <View style={styles.tableRow}>
+            <Text style={styles.col1}>{billing.catalogItemName}</Text>
+            <Text style={styles.col2}>{formatRupiah(billing.subtotal)}</Text>
+            <Text style={styles.col3}>{formatRupiah(billing.subtotal)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.totals}>
+          <View style={styles.totalRow}>
+            <Text>Subtotal:</Text>
+            <Text>{formatRupiah(billing.subtotal)}</Text>
+          </View>
+          <View style={styles.totalRow}>
+            <Text>Tax:</Text>
+            <Text>{formatRupiah(billing.taxTotal)}</Text>
+          </View>
+          <View style={[styles.totalRow, styles.grandTotal]}>
+            <Text>Total Paid:</Text>
+            <Text>{formatRupiah(billing.grandTotal)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.footer}>
+          <Text>Thank you for your business!</Text>
+          <Text>This receipt is generated automatically and is valid without a signature.</Text>
+        </View>
+      </Page>
+    </Document>
+  );
+};

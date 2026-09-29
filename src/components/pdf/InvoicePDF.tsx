@@ -1,105 +1,41 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
-import type { Billing } from "@/types";
-import { formatRupiah } from "@/lib/utils";
+import React from 'react';
+import { Page, Text, View, Document, StyleSheet, Font } from '@react-pdf/renderer';
+import { Billing, Client } from '@/types';
+import { formatRupiah } from '@/lib/utils';
 
-const formatDate = (dateInput: Date | string | null | undefined) => {
-  if (!dateInput) return "-";
-  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
-  return date.toLocaleDateString("id-ID", {
-    day: "numeric", month: "long", year: "numeric"
-  });
-};
+// Font registration (using default fonts for simplicity, you can register custom fonts if needed)
 
 const styles = StyleSheet.create({
   page: {
     padding: 40,
-    fontFamily: 'Helvetica',
     fontSize: 10,
-    color: '#333',
+    fontFamily: 'Helvetica',
+    color: '#333333',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 40,
-    borderBottomWidth: 2,
-    borderBottomColor: '#eee',
-    paddingBottom: 20,
   },
-  headerLeft: {
-    flex: 1,
-  },
-  headerRight: {
-    flex: 1,
-    textAlign: 'right',
-  },
-  invoiceTitle: {
+  title: {
     fontSize: 24,
     fontWeight: 'bold',
-    letterSpacing: 2,
-    color: '#111',
-  },
-  billingNo: {
-    fontSize: 10,
-    color: '#666',
-    marginTop: 4,
-  },
-  companyName: {
-    fontSize: 14,
-    fontWeight: 'bold',
+    color: '#111827',
   },
   companyInfo: {
-    color: '#666',
-    marginTop: 4,
-    lineHeight: 1.4,
+    marginTop: 10,
+    color: '#6b7280',
   },
-  infoSection: {
+  invoiceInfo: {
+    textAlign: 'right',
+  },
+  section: {
+    marginBottom: 30,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 40,
   },
-  clientBox: {
-    flex: 1,
-    paddingRight: 20,
-  },
-  infoTitle: {
-    fontSize: 9,
-    fontWeight: 'bold',
-    color: '#999',
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  clientName: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#111',
-  },
-  clientOrg: {
-    color: '#666',
-    marginTop: 2,
-  },
-  clientEmail: {
-    color: '#666',
-    marginTop: 2,
-  },
-  metaBox: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  metaItem: {
+  billTo: {
     width: '50%',
-    marginBottom: 15,
-  },
-  metaLabel: {
-    fontSize: 9,
-    fontWeight: 'bold',
-    color: '#999',
-    textTransform: 'uppercase',
-  },
-  metaValue: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginTop: 4,
   },
   table: {
     width: '100%',
@@ -107,171 +43,119 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    borderBottomWidth: 2,
-    borderBottomColor: '#111',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
     paddingBottom: 8,
-    marginBottom: 10,
-  },
-  colDesc: {
-    flex: 3,
-    fontSize: 9,
+    marginBottom: 8,
     fontWeight: 'bold',
-    textTransform: 'uppercase',
-  },
-  colAmount: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 9,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
   },
   tableRow: {
     flexDirection: 'row',
-    paddingVertical: 10,
+    paddingBottom: 8,
+    marginBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#f3f4f6',
   },
-  itemDesc: {
-    flex: 3,
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  itemNotes: {
-    fontSize: 9,
-    color: '#666',
-    marginTop: 4,
-  },
-  itemAmount: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 11,
-  },
-  totalsSection: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-  },
-  totalsBox: {
-    width: '50%',
+  col1: { width: '50%' },
+  col2: { width: '25%', textAlign: 'right' },
+  col3: { width: '25%', textAlign: 'right' },
+  totals: {
+    alignItems: 'flex-end',
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    width: '40%',
+    marginBottom: 5,
   },
-  totalLabel: {
-    color: '#666',
-  },
-  totalValue: {
-    textAlign: 'right',
-  },
-  grandTotalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 2,
-    borderTopColor: '#111',
-    paddingTop: 10,
-    marginTop: 10,
-  },
-  grandTotalLabel: {
-    fontSize: 12,
+  grandTotal: {
     fontWeight: 'bold',
-  },
-  grandTotalValue: {
     fontSize: 12,
-    fontWeight: 'bold',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 5,
+    marginTop: 5,
   },
   footer: {
     position: 'absolute',
     bottom: 40,
     left: 40,
     right: 40,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingTop: 15,
     textAlign: 'center',
-    color: '#666',
-    fontSize: 9,
-  }
+    color: '#9ca3af',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 20,
+  },
 });
 
-export const InvoicePDF = ({ billing }: { billing: Billing }) => (
-  <Document>
-    <Page size="A4" style={styles.page}>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.invoiceTitle}>INVOICE</Text>
-          <Text style={styles.billingNo}>{billing.billingNumber}</Text>
-        </View>
-        <View style={styles.headerRight}>
-          <Text style={styles.companyName}>SOSO Creative Hub</Text>
-          <Text style={styles.companyInfo}>Jl. Contoh Alamat No. 123</Text>
-          <Text style={styles.companyInfo}>Surakarta, Jawa Tengah</Text>
-          <Text style={styles.companyInfo}>info@sosocreative.com</Text>
-        </View>
-      </View>
+interface InvoicePDFProps {
+  billing: Billing;
+  client?: Client;
+}
 
-      <View style={styles.infoSection}>
-        <View style={styles.clientBox}>
-          <Text style={styles.infoTitle}>Ditagihkan Kepada</Text>
-          <Text style={styles.clientName}>{billing.clientName}</Text>
-          <Text style={styles.clientOrg}>{billing.clientOrganization || "-"}</Text>
-          <Text style={styles.clientEmail}>{billing.clientEmail}</Text>
-        </View>
-        <View style={styles.metaBox}>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Tanggal Terbit</Text>
-            <Text style={styles.metaValue}>{formatDate(billing.issuedAt)}</Text>
-          </View>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Jatuh Tempo</Text>
-            <Text style={styles.metaValue}>{formatDate(billing.dueDate)}</Text>
-          </View>
-          <View style={[styles.metaItem, { width: '100%' }]}>
-            <Text style={styles.metaLabel}>Status</Text>
-            <Text style={[styles.metaValue, { color: billing.status === 'paid' ? '#059669' : '#d97706' }]}>
-              {billing.status === 'paid' ? 'LUNAS' : 'MENUNGGU PEMBAYARAN'}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.table}>
-        <View style={styles.tableHeader}>
-          <Text style={styles.colDesc}>Deskripsi Layanan</Text>
-          <Text style={styles.colAmount}>Jumlah</Text>
-        </View>
-        <View style={styles.tableRow}>
-          <View style={styles.itemDesc}>
-            <Text>{billing.catalogItemName}</Text>
-            {billing.notes && <Text style={styles.itemNotes}>{billing.notes}</Text>}
-          </View>
-          <Text style={styles.itemAmount}>{formatRupiah(billing.subtotal)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.totalsSection}>
-        <View style={styles.totalsBox}>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Subtotal</Text>
-            <Text style={styles.totalValue}>{formatRupiah(billing.subtotal)}</Text>
-          </View>
-          {billing.taxDetails && billing.taxDetails.map((tax, i) => (
-            <View key={i} style={styles.totalRow}>
-              <Text style={styles.totalLabel}>{tax.name}</Text>
-              <Text style={styles.totalValue}>{tax.amount < 0 ? "-" : "+"}{formatRupiah(Math.abs(tax.amount))}</Text>
+export const InvoicePDF: React.FC<InvoicePDFProps> = ({ billing, client }) => {
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>INVOICE</Text>
+            <View style={styles.companyInfo}>
+              <Text>SOSO Creative Hub</Text>
+              <Text>hello@soso.co.id</Text>
             </View>
-          ))}
-          <View style={styles.grandTotalRow}>
-            <Text style={styles.grandTotalLabel}>Total Tagihan</Text>
-            <Text style={styles.grandTotalValue}>{formatRupiah(billing.grandTotal)}</Text>
+          </View>
+          <View style={styles.invoiceInfo}>
+            <Text style={{ fontWeight: 'bold' }}>{billing.billingNumber}</Text>
+            <Text>Date: {new Date(billing.createdAt).toLocaleDateString('id-ID')}</Text>
+            <Text>Due Date: {new Date(billing.dueDate).toLocaleDateString('id-ID')}</Text>
           </View>
         </View>
-      </View>
 
-      <View style={styles.footer}>
-        <Text>Terima kasih atas kepercayaan Anda.</Text>
-        <Text>Pembayaran dapat dilakukan melalui tautan: {billing.mayarPaymentUrl || "Belum tersedia"}</Text>
-      </View>
-    </Page>
-  </Document>
-);
+        <View style={styles.section}>
+          <View style={styles.billTo}>
+            <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>Bill To:</Text>
+            <Text>{billing.clientName}</Text>
+            <Text>{billing.clientEmail}</Text>
+            {client?.phone && <Text>{client.phone}</Text>}
+          </View>
+        </View>
+
+        <View style={styles.table}>
+          <View style={styles.tableHeader}>
+            <Text style={styles.col1}>Item Description</Text>
+            <Text style={styles.col2}>Amount</Text>
+            <Text style={styles.col3}>Total</Text>
+          </View>
+          
+          <View style={styles.tableRow}>
+            <Text style={styles.col1}>{billing.catalogItemName}</Text>
+            <Text style={styles.col2}>{formatRupiah(billing.subtotal)}</Text>
+            <Text style={styles.col3}>{formatRupiah(billing.subtotal)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.totals}>
+          <View style={styles.totalRow}>
+            <Text>Subtotal:</Text>
+            <Text>{formatRupiah(billing.subtotal)}</Text>
+          </View>
+          <View style={styles.totalRow}>
+            <Text>Tax:</Text>
+            <Text>{formatRupiah(billing.taxTotal)}</Text>
+          </View>
+          <View style={[styles.totalRow, styles.grandTotal]}>
+            <Text>Total Due:</Text>
+            <Text>{formatRupiah(billing.grandTotal)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.footer}>
+          <Text>Thank you for your business!</Text>
+          <Text>Payment can be processed securely via our portal using your Access Code: {billing.accessCode}</Text>
+        </View>
+      </Page>
+    </Document>
+  );
+};

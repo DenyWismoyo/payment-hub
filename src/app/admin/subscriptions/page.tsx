@@ -1,16 +1,69 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import useSWR from "swr";
-import { Repeat, Search, Plus, Calendar, MoreVertical, Edit, Trash2 } from "lucide-react";
+import { Repeat, Search, Plus, Calendar, MoreVertical, Edit, Trash2, XCircle } from "lucide-react";
 import { formatRupiah } from "@/lib/utils";
-import type { Subscription } from "@/types";
+import type { Subscription, Client, Catalog, CatalogItem } from "@/types";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { toast } from "sonner";
+import { LoadingSkeleton } from "@/components/common/LoadingSkeleton";
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+const fetcher = (url: string) => fetchWithAuth(url).then((res) => res.json());
 
 export default function SubscriptionsPage() {
   const { data, error, isLoading, mutate } = useSWR<{ success: boolean; data: Subscription[] }>("/api/subscriptions", fetcher);
+  
+  // Need to fetch clients and catalogs for the form
+  const [clients, setClients] = useState<Client[]>([]);
+  const [catalogs, setCatalogs] = useState<Catalog[]>([]);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  
   const [searchTerm, setSearchTerm] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingSub, setEditingSub] = useState<Subscription | null>(null);
+
+  const [formData, setFormData] = useState({
+    clientId: "",
+    catalogId: "", // Just for selection
+    catalogItemId: "",
+    cycle: "monthly",
+    amount: 0,
+    nextBillingDate: "",
+    status: "active"
+  });
+
+  useEffect(() => {
+    // Fetch clients and catalogs
+    const loadDependencies = async () => {
+      try {
+        const [clientRes, catalogRes] = await Promise.all([
+          fetchWithAuth("/api/clients").then(r => r.json()),
+          fetchWithAuth("/api/catalogs").then(r => r.json())
+        ]);
+        if (clientRes.success) setClients(clientRes.data);
+        if (catalogRes.success) setCatalogs(catalogRes.data);
+      } catch (e) {
+        console.error("Failed to load dependencies", e);
+      }
+    };
+    loadDependencies();
+  }, []);
+
+  // Fetch catalog items when catalog changes
+  useEffect(() => {
+    if (formData.catalogId) {
+      fetchWithAuth(`/api/catalogs/${formData.catalogId}`)
+        .then(r => r.json())
+        .then(json => {
+          if (json.success && json.data.items) {
+            setCatalogItems(json.data.items);
+          }
+        });
+    } else {
+      setCatalogItems([]);
+    }
+  }, [formData.catalogId]);
 
   const subscriptions = data?.data || [];
   
@@ -21,10 +74,10 @@ export default function SubscriptionsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "active": return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20";
-      case "paused": return "bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border-amber-200 dark:border-amber-500/20";
-      case "cancelled": return "bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400 border-red-200 dark:border-red-500/20";
-      default: return "bg-gray-100 text-gray-700 dark:bg-zinc-800 dark:text-zinc-400 border-gray-200 dark:border-zinc-700";
+      case "active": return "bg-emerald-100 text-emerald-700 border-emerald-200";
+      case "paused": return "bg-amber-100 text-amber-700 border-amber-200";
+      case "cancelled": return "bg-red-100 text-red-700 border-red-200";
+      default: return "bg-gray-100 text-gray-700 border-gray-200";
     }
   };
 
@@ -37,9 +90,107 @@ export default function SubscriptionsPage() {
     }
   };
 
+  const openModal = (sub?: Subscription) => {
+    if (sub) {
+      setEditingSub(sub);
+      setFormData({
+        clientId: sub.clientId,
+        catalogId: "", // Hard to map back unless we know the catalogId of the item
+        catalogItemId: sub.catalogItemId,
+        cycle: sub.cycle,
+        amount: sub.amount,
+        nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate).toISOString().split('T')[0] : "",
+        status: sub.status
+      });
+    } else {
+      setEditingSub(null);
+      setFormData({
+        clientId: "",
+        catalogId: "",
+        catalogItemId: "",
+        cycle: "monthly",
+        amount: 0,
+        nextBillingDate: new Date().toISOString().split('T')[0],
+        status: "active"
+      });
+    }
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingSub(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const isEdit = !!editingSub;
+    const url = isEdit ? `/api/subscriptions/${editingSub.id}` : "/api/subscriptions";
+    const method = isEdit ? "PUT" : "POST";
+
+    const client = clients.find(c => c.id === formData.clientId);
+    // If we are editing and didn't change catalog, catalogItems might be empty
+    const item = catalogItems.find(i => i.id === formData.catalogItemId) || 
+                 (editingSub ? { id: editingSub.catalogItemId, name: editingSub.catalogItemName } : null);
+
+    if (!client || !item) {
+      toast.error("Klien atau Item Katalog tidak valid");
+      return;
+    }
+
+    const payload = {
+      clientId: client.id,
+      clientName: client.name,
+      clientEmail: client.email,
+      catalogItemId: item.id,
+      catalogItemName: item.name,
+      cycle: formData.cycle,
+      amount: Number(formData.amount),
+      nextBillingDate: new Date(formData.nextBillingDate).toISOString(),
+      status: formData.status
+    };
+
+    try {
+      const res = await fetchWithAuth(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        toast.success(isEdit ? "Langganan berhasil diubah" : "Langganan berhasil ditambahkan");
+        closeModal();
+        mutate();
+      } else {
+        toast.error(json.message || "Gagal menyimpan langganan");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Terjadi kesalahan server");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("Apakah Anda yakin ingin menghapus langganan ini?")) return;
+    
+    try {
+      const res = await fetchWithAuth(`/api/subscriptions/${id}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        toast.success("Langganan berhasil dihapus");
+        mutate();
+      } else {
+        toast.error(json.message || "Gagal menghapus langganan");
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Terjadi kesalahan server");
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Manajemen Langganan</h1>
@@ -47,13 +198,12 @@ export default function SubscriptionsPage() {
             Kelola tagihan berulang dan siklus pembayaran klien
           </p>
         </div>
-        <button className="btn-primary flex items-center gap-2">
+        <button onClick={() => openModal()} className="bg-primary hover:bg-primary-light text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
           <Plus className="w-4 h-4" />
           <span>Langganan Baru</span>
         </button>
       </div>
 
-      {/* Controls */}
       <div className="bg-[var(--surface)] p-4 rounded-2xl border border-[var(--border)] shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
         <div className="relative w-full sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
@@ -62,12 +212,11 @@ export default function SubscriptionsPage() {
             placeholder="Cari langganan, klien..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="input-field pl-9 w-full"
+            className="w-full pl-9 pr-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none transition-all text-sm"
           />
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -84,10 +233,7 @@ export default function SubscriptionsPage() {
               {isLoading ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-[var(--text-muted)]">
-                    <div className="flex flex-col items-center justify-center">
-                      <Repeat className="w-8 h-8 animate-spin-slow mb-4 opacity-50" />
-                      <p>Memuat data langganan...</p>
-                    </div>
+                    <LoadingSkeleton type="table" count={3} />
                   </td>
                 </tr>
               ) : error ? (
@@ -132,10 +278,10 @@ export default function SubscriptionsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button className="p-2 text-[var(--text-muted)] hover:text-primary transition-colors bg-[var(--surface)] hover:bg-[var(--surface-hover)] rounded-lg border border-transparent hover:border-[var(--border)]" title="Edit">
+                        <button onClick={() => openModal(sub)} className="p-2 text-[var(--text-muted)] hover:text-primary transition-colors hover:bg-primary/10 rounded-lg" title="Edit">
                           <Edit className="w-4 h-4" />
                         </button>
-                        <button className="p-2 text-[var(--text-muted)] hover:text-danger transition-colors bg-[var(--surface)] hover:bg-[var(--surface-hover)] rounded-lg border border-transparent hover:border-[var(--border)]" title="Hapus">
+                        <button onClick={() => handleDelete(sub.id)} className="p-2 text-[var(--text-muted)] hover:text-danger transition-colors hover:bg-danger/10 rounded-lg" title="Hapus">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
@@ -147,6 +293,141 @@ export default function SubscriptionsPage() {
           </table>
         </div>
       </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+            <div className="px-6 py-4 border-b border-[var(--border)] flex justify-between items-center">
+              <h3 className="font-semibold text-lg">{editingSub ? "Edit Langganan" : "Langganan Baru"}</h3>
+              <button onClick={closeModal} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Klien *</label>
+                <select 
+                  required
+                  value={formData.clientId}
+                  onChange={e => setFormData({...formData, clientId: e.target.value})}
+                  className="w-full px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none text-sm"
+                  disabled={!!editingSub}
+                >
+                  <option value="">-- Pilih Klien --</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} ({c.email})</option>
+                  ))}
+                </select>
+              </div>
+
+              {!editingSub && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Katalog *</label>
+                    <select 
+                      required
+                      value={formData.catalogId}
+                      onChange={e => setFormData({...formData, catalogId: e.target.value})}
+                      className="w-full px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none text-sm"
+                    >
+                      <option value="">-- Pilih Katalog --</option>
+                      {catalogs.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Item Katalog *</label>
+                    <select 
+                      required
+                      value={formData.catalogItemId}
+                      onChange={e => {
+                        const item = catalogItems.find(i => i.id === e.target.value);
+                        setFormData({
+                          ...formData, 
+                          catalogItemId: e.target.value,
+                          amount: item ? item.price : 0
+                        });
+                      }}
+                      className="w-full px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none text-sm"
+                      disabled={!formData.catalogId}
+                    >
+                      <option value="">-- Pilih Item --</option>
+                      {catalogItems.map(item => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Siklus *</label>
+                  <select 
+                    required
+                    value={formData.cycle}
+                    onChange={e => setFormData({...formData, cycle: e.target.value})}
+                    className="w-full px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none text-sm"
+                  >
+                    <option value="monthly">Bulanan</option>
+                    <option value="quarterly">Kuartalan</option>
+                    <option value="yearly">Tahunan</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Harga *</label>
+                  <input 
+                    type="number"
+                    required
+                    min="0"
+                    value={formData.amount}
+                    onChange={e => setFormData({...formData, amount: Number(e.target.value)})}
+                    className="w-full px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Tanggal Mulai/Jatuh Tempo *</label>
+                  <input 
+                    type="date"
+                    required
+                    value={formData.nextBillingDate}
+                    onChange={e => setFormData({...formData, nextBillingDate: e.target.value})}
+                    className="w-full px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Status *</label>
+                  <select 
+                    required
+                    value={formData.status}
+                    onChange={e => setFormData({...formData, status: e.target.value})}
+                    className="w-full px-4 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] focus:border-primary outline-none text-sm"
+                  >
+                    <option value="active">Aktif</option>
+                    <option value="paused">Jeda (Paused)</option>
+                    <option value="cancelled">Dibatalkan</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 border-t border-[var(--border)] mt-6">
+                <button type="button" onClick={closeModal} className="px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+                  Batal
+                </button>
+                <button type="submit" className="px-4 py-2 bg-primary hover:bg-primary-light text-white rounded-lg text-sm font-medium transition-colors">
+                  Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

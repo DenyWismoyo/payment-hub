@@ -197,6 +197,23 @@ export interface AccessCode {
 }
 
 // ============================================================
+// Coupon Types
+// ============================================================
+
+export interface Coupon {
+  id: string;
+  code: string;
+  type: "percentage" | "fixed";
+  value: number;
+  maxUses: number | null;
+  usedCount: number;
+  expiresAt: string | null;
+  appliesTo: "all" | string[];
+  status: "active" | "inactive";
+  createdAt: string;
+}
+
+// ============================================================
 // Invoice/Receipt Types
 // ============================================================
 

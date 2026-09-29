@@ -98,6 +98,25 @@ export interface MayarWebhookPayload {
   };
 }
 
+export interface MayarDailyTransactionData {
+  date: string;
+  totalAmount: number;
+  count: number;
+}
+
+export interface MayarStatisticsData {
+  totalRevenue: number;
+  totalTransactions: number;
+  totalCustomers: number;
+  activeSubscriptions: number;
+}
+
+export interface MayarCouponValidationData {
+  isValid: boolean;
+  discountAmount: number;
+  finalAmount: number;
+}
+
 // ─── Mayar Client Class ───────────────────────────────────────
 
 class MayarClient {
@@ -125,6 +144,7 @@ class MayarClient {
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
+        const startTime = Date.now();
         const response = await fetch(url, {
           ...options,
           signal: controller.signal,
@@ -134,6 +154,9 @@ class MayarClient {
             ...options.headers,
           },
         });
+        
+        const duration = Date.now() - startTime;
+        console.log(`[MayarClient] ${options.method || 'GET'} ${endpoint} - ${response.status} (${duration}ms)`);
 
         if (!response.ok) {
           const errorBody = await response.text();
@@ -186,7 +209,7 @@ class MayarClient {
   // ─── Invoice ──────────────────────────────────────────────
 
   async createInvoice(payload: MayarInvoiceCreatePayload) {
-    return this.request<MayarInvoiceData>("/invoices/create", {
+    return this.request<MayarInvoiceData>("/invoices", {
       method: "POST",
       body: JSON.stringify(payload),
     });
@@ -285,7 +308,7 @@ class MayarClient {
   }
 
   async getDailyTransactions() {
-    return this.request<unknown>("/transactions/daily");
+    return this.request<MayarDailyTransactionData[]>("/transactions/daily");
   }
 
   // ─── QR Code ──────────────────────────────────────────────
@@ -304,7 +327,7 @@ class MayarClient {
   // ─── Statistics ───────────────────────────────────────────
 
   async getStatistics() {
-    return this.request<unknown>("/statistics");
+    return this.request<MayarStatisticsData>("/statistics");
   }
 
   // ─── Account / Balance ──────────────────────────────────────
@@ -316,7 +339,7 @@ class MayarClient {
   // ─── Coupons ──────────────────────────────────────────────
 
   async validateCoupon(payload: { couponCode: string; paymentLinkId: string; amount: number; membershipTierId?: string }) {
-    return this.request<unknown>("/coupons/validate", {
+    return this.request<MayarCouponValidationData>("/coupons/validate", {
       method: "POST",
       body: JSON.stringify(payload)
     });
