@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import { onRequest } from "firebase-functions/v2/https";
 import express, { Request, Response } from "express";
 import { db } from "./admin";
 import { handleOptions, verifyToken, getString } from "./helpers";
@@ -60,4 +60,4 @@ app.put("/:id", async (req: Request, res: Response) => {
   } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
 });
 
-export const clientsApi = functions.https.onRequest(app);
+export const clientsApi = onRequest({ invoker: "public", region: "us-central1" }, app);

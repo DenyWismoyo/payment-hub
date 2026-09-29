@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import { onRequest } from "firebase-functions/v2/https";
 import express, { Request, Response } from "express";
 import { db } from "./admin";
 import { handleOptions, verifyToken, getString } from "./helpers";
@@ -77,4 +77,4 @@ app.delete("/:id", async (req: Request, res: Response) => {
   } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
 });
 
-export const catalogsApi = functions.https.onRequest(app);
+export const catalogsApi = onRequest({ invoker: "public", region: "us-central1" }, app);

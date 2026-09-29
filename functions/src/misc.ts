@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import { onRequest } from "firebase-functions/v2/https";
 import express, { Request, Response } from "express";
 import { db } from "./admin";
 import { handleOptions, verifyToken, getString } from "./helpers";
@@ -19,7 +19,7 @@ pApp.get("/", async (req: Request, res: Response) => {
   } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
 });
 
-export const paymentsApi = functions.https.onRequest(pApp);
+export const paymentsApi = onRequest({ invoker: "public", region: "us-central1" }, pApp);
 
 // ─── Subscriptions ────────────────────────────────────────────
 const sApp = express();
@@ -70,7 +70,7 @@ sApp.delete("/:id", async (req: Request, res: Response) => {
   } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
 });
 
-export const subscriptionsApi = functions.https.onRequest(sApp);
+export const subscriptionsApi = onRequest({ invoker: "public", region: "us-central1" }, sApp);
 
 // ─── Coupons ──────────────────────────────────────────────────
 const cApp = express();
@@ -127,4 +127,4 @@ cApp.delete("/:id", async (req: Request, res: Response) => {
   } catch (error) { res.status(500).json({ success: false, message: String(error) }); }
 });
 
-export const couponsApi = functions.https.onRequest(cApp);
+export const couponsApi = onRequest({ invoker: "public", region: "us-central1" }, cApp);

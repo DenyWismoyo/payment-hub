@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import { onRequest } from "firebase-functions/v2/https";
 import express, { Request, Response } from "express";
 import { db } from "./admin";
 import { handleOptions, verifyToken } from "./helpers";
@@ -78,4 +78,4 @@ app.get("/", async (req: Request, res: Response) => {
   } catch (error) { console.error("[dashboard GET]", error); res.status(500).json({ success: false, message: String(error) }); }
 });
 
-export const dashboardApi = functions.https.onRequest(app);
+export const dashboardApi = onRequest({ invoker: "public", region: "us-central1" }, app);
