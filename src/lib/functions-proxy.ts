@@ -33,9 +33,38 @@ async function proxyToFunction(request: NextRequest, functionName: string, subPa
     if (body) options.body = body;
   }
 
-  const res = await fetch(targetUrl, options);
-  const data = await res.json();
-  return NextResponse.json(data, { status: res.status });
+  try {
+    const res = await fetch(targetUrl, options);
+    const contentType = res.headers.get("content-type");
+    
+    // Read as text first to prevent JSON parse errors on HTML/plain text
+    const text = await res.text();
+    let data;
+
+    try {
+      // Only parse if not empty
+      data = text ? JSON.parse(text) : {};
+    } catch (e) {
+      console.error(`[proxyToFunction] Failed to parse JSON from ${targetUrl}. Status: ${res.status}. Body preview: ${text.substring(0, 100)}`);
+      // If it's a 403 or other error that returns HTML
+      if (!res.ok) {
+        return NextResponse.json(
+          { success: false, message: `Function error (${res.status}): ${res.statusText}`, debug: text.substring(0, 500) }, 
+          { status: res.status }
+        );
+      }
+      // If success but invalid JSON
+      return new NextResponse(text, { status: res.status, headers: { "Content-Type": contentType || "text/plain" } });
+    }
+
+    return NextResponse.json(data, { status: res.status });
+  } catch (error: unknown) {
+    console.error(`[proxyToFunction] Network/Fetch error to ${targetUrl}:`, error);
+    return NextResponse.json(
+      { success: false, message: "Gagal menghubungi backend service", error: String(error) }, 
+      { status: 500 }
+    );
+  }
 }
 
 export { proxyToFunction, FUNCTION_MAP, FUNCTIONS_BASE };
