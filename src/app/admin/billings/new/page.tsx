@@ -7,7 +7,7 @@ import { useCatalogs } from "@/hooks/useCatalogs";
 import { useSettings } from "@/hooks/useSettings";
 import { calculateTaxes, calculateGrandTotal, calculateTaxTotal } from "@/lib/tax/calculator";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import type { TaxAllocationRule, ClientType } from "@/types";
+import type { TaxAllocationRule, ClientType, CatalogItem } from "@/types";
 
 export default function NewBillingPage() {
   const router = useRouter();
@@ -20,7 +20,10 @@ export default function NewBillingPage() {
 
   // Form State
   const [clientId, setClientId] = useState("");
+  const [selectedCatalogId, setSelectedCatalogId] = useState("");
   const [catalogItemId, setCatalogItemId] = useState("");
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(false);
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState(() => {
@@ -41,14 +44,39 @@ export default function NewBillingPage() {
     }
   }, [settings]);
 
+  // Fetch catalog items when catalog changes
+  useEffect(() => {
+    if (!selectedCatalogId) {
+      setCatalogItems([]);
+      setCatalogItemId("");
+      return;
+    }
+    const fetchItems = async () => {
+      setLoadingItems(true);
+      try {
+        const res = await fetchWithAuth(`/api/catalogs/${selectedCatalogId}/items`);
+        const json = await res.json();
+        if (json.success) {
+          setCatalogItems(json.data);
+          setCatalogItemId(""); // Reset item selection
+        }
+      } catch (err) {
+        console.error("Gagal memuat item katalog", err);
+      } finally {
+        setLoadingItems(false);
+      }
+    };
+    fetchItems();
+  }, [selectedCatalogId]);
+
   // Derived Data
   const selectedClient = clients.find((c) => c.id === clientId);
-  const selectedCatalog = catalogs.find((c) => c.id === catalogItemId);
+  const selectedItem = catalogItems.find((i) => i.id === catalogItemId);
 
   const subtotal = useMemo(() => {
-    if (!selectedCatalog) return 0;
-    return (selectedCatalog.price || 0) * qty;
-  }, [selectedCatalog, qty]);
+    if (!selectedItem) return 0;
+    return (selectedItem.price || 0) * qty;
+  }, [selectedItem, qty]);
 
   const taxRules = useMemo(() => {
     const rules: TaxAllocationRule[] = [];
@@ -180,21 +208,41 @@ export default function NewBillingPage() {
             </div>
 
             {/* Produk */}
-            <div>
-              <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Katalog Produk/Layanan</label>
-              <select
-                required
-                value={catalogItemId}
-                onChange={(e) => setCatalogItemId(e.target.value)}
-                className="w-full px-4 py-2 border border-[var(--border)] bg-[var(--background)] text-[var(--text-primary)] rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
-              >
-                <option value="">-- Pilih Layanan --</option>
-                {catalogs.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} - {formatCurrency(c.price || 0)}
-                  </option>
-                ))}
-              </select>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Katalog Produk/Layanan</label>
+                <select
+                  required
+                  value={selectedCatalogId}
+                  onChange={(e) => setSelectedCatalogId(e.target.value)}
+                  className="w-full px-4 py-2 border border-[var(--border)] bg-[var(--background)] text-[var(--text-primary)] rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
+                >
+                  <option value="">-- Pilih Katalog --</option>
+                  {catalogs.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Item Layanan</label>
+                <select
+                  required
+                  value={catalogItemId}
+                  onChange={(e) => setCatalogItemId(e.target.value)}
+                  disabled={!selectedCatalogId || loadingItems}
+                  className="w-full px-4 py-2 border border-[var(--border)] bg-[var(--background)] text-[var(--text-primary)] rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all disabled:opacity-50"
+                >
+                  <option value="">{loadingItems ? "Memuat..." : "-- Pilih Item --"}</option>
+                  {catalogItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} - {formatCurrency(item.price || 0)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -272,7 +320,7 @@ export default function NewBillingPage() {
               </div>
               <div className="flex justify-between items-start text-sm">
                 <span className="text-blue-200">Layanan</span>
-                <span className="font-medium text-right truncate ml-4">{selectedCatalog?.name || "-"}</span>
+                <span className="font-medium text-right truncate ml-4">{selectedItem?.name || "-"}</span>
               </div>
               
               <hr className="border-blue-800 my-4" />
