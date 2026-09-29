@@ -21,13 +21,15 @@ export async function GET(
     const snapshot = await adminDb
       .collection("catalog_items")
       .where("catalogId", "==", catalogId)
-      .orderBy("createdAt", "desc")
       .get();
     
     const items: CatalogItem[] = [];
     snapshot.forEach((doc) => {
       items.push({ id: doc.id, ...doc.data() } as CatalogItem);
     });
+
+    // Sort in memory by createdAt descending
+    items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     return NextResponse.json({ success: true, data: items });
   } catch (error: unknown) {
